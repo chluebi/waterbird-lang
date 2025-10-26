@@ -20,8 +20,7 @@ impl fmt::Display for KeywordArgumentType {
 pub enum Type {
     Generic(String),
     Void,
-    Int32,
-    Int64,
+    Int,
     Bool,
     Str,
     Tuple(Vec<Type>),
@@ -45,8 +44,7 @@ impl fmt::Display for Type {
         match self {
             Type::Generic(s) => write!(f, "{}", s),
             Type::Void => write!(f, "()"),
-            Type::Int32 => write!(f, "int"),
-            Type::Int64 => write!(f, "int64"),
+            Type::Int => write!(f, "int"),
             Type::Bool => write!(f, "bool"),
             Type::Str => write!(f, "str"),
             Type::Tuple(type_vec) => {
@@ -54,7 +52,14 @@ impl fmt::Display for Type {
             },
             Type::List(t) => write!(f, "List<{}>", t),
             Type::Dict{keys, values} => write!(f, "Dict<{},{}>", keys, values),
-            Type::Callable{generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type} => {
+            Type::Callable{
+                generics, 
+                positional_arguments,
+                variadic_argument,
+                keyword_arguments,
+                keyword_variadic_argument,
+                return_type
+            } => {
                 write!(f, "fn")?;
 
                 // Generics, if any
@@ -96,16 +101,18 @@ impl fmt::Display for Type {
     }
 }
 
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeywordArgumentTypeLiteral {
     name: String,
     arg_type: Box<LocTypeLiteral>
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeLiteral {
     Generic(String),
     Void,
-    Int32,
-    Int64,
+    Int,
     Bool,
     Str,
     Tuple(Vec<LocTypeLiteral>),
@@ -124,21 +131,31 @@ pub enum TypeLiteral {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocTypeLiteral {
     expr: TypeLiteral,
     loc: Loc
 }
 
-pub enum BinOp {}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BinOp {
+    Add,
+    Sub
+}
 
-pub enum UnOp {}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnOp {
+    Neg
+}
 
+#[derive(Debug, Clone)]
 pub struct CallArgument {
     pub expression: Box<LocExpr>,
     pub loc: Loc 
 }
 
 
+#[derive(Debug, Clone)]
 pub struct CallKeywordArgument {
     pub name: String,
     pub expression: Box<LocExpr>,
@@ -146,15 +163,16 @@ pub struct CallKeywordArgument {
 }
 
 
+#[derive(Debug, Clone)]
 pub struct LambdaArgument {
     pub name: String,
     pub loc: Loc
 }
 
+#[derive(Debug, Clone)]
 pub enum Expr {
     Variable(String),
-    Int32(i32),
-    Int64(i64),
+    Int(i64),
     Bool(bool),
     Str(String),
     Tuple(Vec<LocExpr>),
@@ -166,7 +184,7 @@ pub enum Expr {
         right: Box<LocExpr>,
     },
     Unop {
-        op: BinOp,
+        op: UnOp,
         expr: Box<LocExpr>
     },
     FunctionCall {
@@ -183,15 +201,20 @@ pub enum Expr {
     Lambda {
        arguments: Vec<LambdaArgument>,
        expr: Box<LocExpr>
+    },
+    Block {
+        statements: Vec<LocStmt>    
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct LocExpr {
-    expr: Expr,
-    loc: Loc
+    pub expr: Expr,
+    pub loc: Loc
 }
 
 
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Assignment {
         target: LocExpr,
@@ -200,42 +223,44 @@ pub enum Stmt {
     FunctionCall {
         expression: LocExpr
     },
-    ListAppend {
-        target: LocExpr,
-        value: LocExpr
-    },
     Return {
         expression: LocExpr
     },
     IfElse {
         condition: LocExpr,
-        if_body: Body,
-        else_body: Body
+        if_body: Box<LocStmt>,
+        else_body: Box<LocStmt> 
     },
     While {
         condition: LocExpr,
-        body: Body
+        body: Box<LocStmt>
+    },
+    Block {
+        statements: Vec<LocStmt> 
     }
 }
 
 
+#[derive(Debug, Clone)]
 pub struct LocStmt {
-    pub statement: Stmt,
+    pub stmt: Stmt,
     pub loc: Loc 
 }
 
 
+#[derive(Debug, Clone)]
 pub struct Body {
     pub statements: Vec<LocStmt>
 }
 
+#[derive(Debug, Clone)]
 pub struct Argument {
     pub name: String,
     pub arg_type: LocTypeLiteral,
     pub loc: Loc 
 }
 
-
+#[derive(Debug, Clone)]
 pub struct KeywordArgument {
     pub name: String,
     pub expression: LocExpr,
@@ -243,6 +268,7 @@ pub struct KeywordArgument {
 }
 
 
+#[derive(Debug, Clone)]
 pub struct FunctionPrototype {
     pub positional_arguments: Vec<Argument>,
     pub variadic_argument: Option<Argument>,
@@ -252,6 +278,7 @@ pub struct FunctionPrototype {
 }
 
 
+#[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
     pub contract: FunctionPrototype,
@@ -259,6 +286,7 @@ pub struct Function {
     pub loc: Loc 
 }
 
+#[derive(Debug, Clone)]
 pub struct Program {
     pub functions: HashMap<String, Function>
 }
