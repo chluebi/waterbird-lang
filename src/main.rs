@@ -20,36 +20,47 @@ fn loc_stmt(stmt: Stmt) -> LocStmt {
 fn build_test_ast() -> LocStmt {
     // This AST represents the following pseudo-code:
     // {
-    //   // 1. Lambda Definition
+    //   // --- Original Tests ---
     //   var my_add = fn(a, b) { a + b };
-    //
-    //   // 2. Lambda Call
     //   var z = my_add(10, 15); // z = 25
-    //
-    //   // 3. If/Else Control Flow
     //   var result_str = "";
-    //   if (true) { // Using `true` since interpreter lacks comparison ops
-    //     result_str = "big";
-    //   } else {
-    //     result_str = "small";
-    //   } // result_str = "big"
-    //
-    //   // 4. While Control Flow
+    //   if (true) { ... } else { ... } // result_str = "big"
     //   var run_loop = true;
     //   var my_list = [100];
-    //   while (run_loop) {
-    //     my_list[0] = my_list[0] + z; // my_list[0] = 100 + 25 = 125
-    //     run_loop = false; // Manually stop loop
-    //   } // my_list = [125]
+    //   while (run_loop) { ... } // my_list = [125]
     //
-    //   // 5. External Function Call (to 'test_func' defined in main)
-    //   var func_result = test_func(my_list[0]); // func_result = test_func(125) = 125 + 125 = 250
+    //   // --- NEW: 1. Different Operators ---
+    //   var ops_test = (((10 * 2) - 5) / 3) + 1; // ops_test = 6
+    //   var ops_bool = (true && !false) || (5 > 10); // ops_bool = true
     //
-    //   // 6. Return all computed values
-    //   return (z, result_str, my_list[0], func_result); // (25, "big", 125, 250)
+    //   // --- NEW: 2. Block returning an expression ---
+    //   var block_val = {
+    //     var inner = 2;
+    //     inner * 5
+    //   }; // block_val = 10
+    //
+    //   // --- NEW: 3. Block running by itself (for scope) ---
+    //   {
+    //     var scoped_var = "should not be visible";
+    //   }
+    //
+    //   // --- NEW: 4. Recursive Unpacking ---
+    //   var (unpack_a, [unpack_b, unpack_c]) = (1, [2, 3]);
+    //   // unpack_a = 1, unpack_b = 2, unpack_c = 3
+    //
+    //   // --- NEW: 5. Recursion (call to 'factorial') ---
+    //   var fact_result = factorial(5); // fact_result = 120
+    //
+    //   // --- Original Test ---
+    //   var func_result = test_func(my_list[0]); // func_result = test_func(125) = 250
+    //
+    //   // --- Updated Return ---
+    //   return (z, result_str, my_list[0], func_result, block_val, ops_test, ops_bool, fact_result, unpack_a, unpack_b, unpack_c);
+    //   // Expected: (25, "big", 125, 250, 10, 6, true, 120, 1, 2, 3)
     // }
 
     let statements = vec![
+        // --- Original Tests ---
         // var my_add = fn(a, b) { a + b };
         loc_stmt(Stmt::Assignment {
             target: loc_expr(Expr::Variable("my_add".to_string())),
@@ -151,6 +162,128 @@ fn build_test_ast() -> LocStmt {
             })),
         }), // my_list[0] is 125
 
+        // ---
+        // --- NEW FEATURES START HERE ---
+        // ---
+
+        // 1. Different Operators
+        // var ops_test = (((10 * 2) - 5) / 3) + 1; // 6
+        loc_stmt(Stmt::Assignment {
+            target: loc_expr(Expr::Variable("ops_test".to_string())),
+            expression: loc_expr(Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(loc_expr(Expr::BinOp {
+                    op: BinOp::Div,
+                    left: Box::new(loc_expr(Expr::BinOp {
+                        op: BinOp::Sub,
+                        left: Box::new(loc_expr(Expr::BinOp {
+                            op: BinOp::Mul,
+                            left: Box::new(loc_expr(Expr::Int(10))),
+                            right: Box::new(loc_expr(Expr::Int(2))),
+                        })), // 20
+                        right: Box::new(loc_expr(Expr::Int(5))),
+                    })), // 15
+                    right: Box::new(loc_expr(Expr::Int(3))),
+                })), // 5
+                right: Box::new(loc_expr(Expr::Int(1))),
+            }), // 6
+        }),
+        // var ops_bool = (true && !false) || (5 > 10); // true
+        loc_stmt(Stmt::Assignment {
+            target: loc_expr(Expr::Variable("ops_bool".to_string())),
+            expression: loc_expr(Expr::BinOp {
+                op: BinOp::Or,
+                left: Box::new(loc_expr(Expr::BinOp {
+                    op: BinOp::And,
+                    left: Box::new(loc_expr(Expr::Bool(true))),
+                    right: Box::new(loc_expr(Expr::Unop { // !false
+                        op: UnOp::Not,
+                        expr: Box::new(loc_expr(Expr::Bool(false))),
+                    })),
+                })), // true
+                right: Box::new(loc_expr(Expr::BinOp { // 5 > 10
+                    op: BinOp::Gt,
+                    left: Box::new(loc_expr(Expr::Int(5))),
+                    right: Box::new(loc_expr(Expr::Int(10))),
+                })), // false
+            }), // true
+        }),
+
+        // 2. Block returning an expression
+        // var block_val = { var inner = 2; inner * 5 }; // 10
+        loc_stmt(Stmt::Assignment {
+            target: loc_expr(Expr::Variable("block_val".to_string())),
+            expression: loc_expr(Expr::Block {
+                statements: vec![
+                    // var inner = 2;
+                    loc_stmt(Stmt::Assignment {
+                        target: loc_expr(Expr::Variable("inner".to_string())),
+                        expression: loc_expr(Expr::Int(2)),
+                    }),
+                    // inner * 5
+                    loc_stmt(Stmt::Expression {
+                        expression: loc_expr(Expr::BinOp {
+                            op: BinOp::Mul,
+                            left: Box::new(loc_expr(Expr::Variable("inner".to_string()))),
+                            right: Box::new(loc_expr(Expr::Int(5))),
+                        })
+                    })
+                ]
+            })
+        }), // block_val = 10
+
+        // 3. Block running by itself (for scope)
+        // { var scoped_var = "..."; }
+        loc_stmt(Stmt::Block {
+            statements: vec![
+                loc_stmt(Stmt::Assignment {
+                    target: loc_expr(Expr::Variable("scoped_var".to_string())),
+                    expression: loc_expr(Expr::Str("should not be visible".to_string())),
+                })
+            ]
+        }),
+
+        // 4. Recursive Unpacking
+        // var (unpack_a, [unpack_b, unpack_c]) = (1, [2, 3]);
+        loc_stmt(Stmt::Assignment {
+            target: loc_expr(Expr::Tuple(vec![
+                loc_expr(Expr::Variable("unpack_a".to_string())),
+                loc_expr(Expr::List(vec![
+                    loc_expr(Expr::Variable("unpack_b".to_string())),
+                    loc_expr(Expr::Variable("unpack_c".to_string())),
+                ]))
+            ])),
+            expression: loc_expr(Expr::Tuple(vec![
+                loc_expr(Expr::Int(1)),
+                loc_expr(Expr::List(vec![
+                    loc_expr(Expr::Int(2)),
+                    loc_expr(Expr::Int(3)),
+                ]))
+            ])),
+        }), // a=1, b=2, c=3
+
+        // 5. Recursion (call to 'factorial')
+        // var fact_result = factorial(5); // 120
+        loc_stmt(Stmt::Assignment {
+            target: loc_expr(Expr::Variable("fact_result".to_string())),
+            expression: loc_expr(Expr::FunctionCall {
+                function: Box::new(loc_expr(Expr::FunctionPtr("factorial".to_string()))),
+                positional_arguments: vec![
+                    CallArgument {
+                        expression: Box::new(loc_expr(Expr::Int(5))),
+                        loc: 0..0
+                    },
+                ],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+            }),
+        }), // fact_result = 120
+
+        // ---
+        // --- END OF NEW FEATURES ---
+        // ---
+
         // var func_result = test_func(my_list[0]);
         loc_stmt(Stmt::Assignment {
             target: loc_expr(Expr::Variable("func_result".to_string())),
@@ -171,7 +304,7 @@ fn build_test_ast() -> LocStmt {
             }),
         }), // func_result = test_func(125) = 250
 
-        // return (z, result_str, my_list[0], func_result);
+        // return (z, result_str, my_list[0], func_result, ...new_values...);
         loc_stmt(Stmt::Return {
             expression: loc_expr(Expr::Tuple(vec![
                 loc_expr(Expr::Variable("z".to_string())), // 25
@@ -181,6 +314,15 @@ fn build_test_ast() -> LocStmt {
                     indexer: Box::new(loc_expr(Expr::Int(0))),
                 }), // 125
                 loc_expr(Expr::Variable("func_result".to_string())), // 250
+                
+                // --- NEWLY ADDED FOR VERIFICATION ---
+                loc_expr(Expr::Variable("block_val".to_string())), // 10
+                loc_expr(Expr::Variable("ops_test".to_string())), // 6
+                loc_expr(Expr::Variable("ops_bool".to_string())), // true
+                loc_expr(Expr::Variable("fact_result".to_string())), // 120
+                loc_expr(Expr::Variable("unpack_a".to_string())), // 1
+                loc_expr(Expr::Variable("unpack_b".to_string())), // 2
+                loc_expr(Expr::Variable("unpack_c".to_string())), // 3
             ])),
         }),
     ];
@@ -286,6 +428,67 @@ fn main() {
         loc: 0..0,
     };
     functions.insert("test_func".to_string(), test_func);
+
+    // --- NEW: Add recursive factorial function ---
+    // Define `fn factorial(n) { 
+    //   if (n == 0) { return 1; }
+    //   else { return n * factorial(n - 1); }
+    // }`
+    let factorial_func = ast::Function {
+        name: "factorial".to_string(),
+        contract: ast::FunctionPrototype {
+            positional_arguments: vec![ast::Argument {
+                name: "n".to_string(),
+                arg_type: dummy_type_literal(),
+                loc: 0..0,
+            }],
+            variadic_argument: None,
+            keyword_arguments: vec![],
+            keyword_variadic_argument: None,
+            return_type: dummy_type_literal(),
+        },
+        body: Box::new(loc_stmt(Stmt::IfElse {
+            // condition: n == 0
+            condition: loc_expr(Expr::BinOp {
+                op: BinOp::Eq,
+                left: Box::new(loc_expr(Expr::Variable("n".to_string()))),
+                right: Box::new(loc_expr(Expr::Int(0))),
+            }),
+            // if_body: return 1;
+            if_body: Box::new(loc_stmt(Stmt::Return {
+                expression: loc_expr(Expr::Int(1)),
+            })),
+            // else_body: return n * factorial(n - 1);
+            else_body: Box::new(loc_stmt(Stmt::Return {
+                expression: loc_expr(Expr::BinOp {
+                    op: BinOp::Mul,
+                    // n
+                    left: Box::new(loc_expr(Expr::Variable("n".to_string()))),
+                    // factorial(n - 1)
+                    right: Box::new(loc_expr(Expr::FunctionCall {
+                        function: Box::new(loc_expr(Expr::FunctionPtr("factorial".to_string()))),
+                        positional_arguments: vec![
+                            CallArgument {
+                                expression: Box::new(loc_expr(Expr::BinOp {
+                                    op: BinOp::Sub,
+                                    left: Box::new(loc_expr(Expr::Variable("n".to_string()))),
+                                    right: Box::new(loc_expr(Expr::Int(1))),
+                                })),
+                                loc: 0..0
+                            }
+                        ],
+                        variadic_argument: None,
+                        keyword_arguments: vec![],
+                        keyword_variadic_argument: None,
+                    })),
+                }),
+            })),
+        })),
+        loc: 0..0,
+    };
+    functions.insert("factorial".to_string(), factorial_func);
+    // --- END NEW ---
+
 
     let program = ast::Program { functions };
     // --- END NEW ---

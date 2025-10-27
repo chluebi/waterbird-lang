@@ -139,13 +139,30 @@ pub struct LocTypeLiteral {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BinOp {
+    Eq,
+    Neq,
+
+    Leq,
+    Geq,
+    Lt,
+    Gt,
+
     Add,
-    Sub
+    Sub,
+    Mul,
+    Div,
+
+    ShiftLeft,
+    ShiftRightArith,
+
+    And,
+    Or
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UnOp {
-    Neg
+    Neg,
+    Not
 }
 
 #[derive(Debug, Clone)]
@@ -238,6 +255,9 @@ pub enum Stmt {
     },
     Block {
         statements: Vec<LocStmt> 
+    },
+    Expression {
+        expression: LocExpr
     }
 }
 

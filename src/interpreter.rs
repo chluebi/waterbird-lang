@@ -269,13 +269,62 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             match (left_value, right_value) {
                 (Value::Int(left_value), Value::Int(right_value)) => {
                     match op {
+                        ast::BinOp::Eq => return Ok(Value::Bool(left_value == right_value)),
+                        ast::BinOp::Neq => return Ok(Value::Bool(left_value != right_value)),
+                        ast::BinOp::Leq => return Ok(Value::Bool(left_value <= right_value)),
+                        ast::BinOp::Geq => return Ok(Value::Bool(left_value >= right_value)),
+                        ast::BinOp::Lt => return Ok(Value::Bool(left_value < right_value)),
+                        ast::BinOp::Gt => return Ok(Value::Bool(left_value > right_value)),
                         ast::BinOp::Add => return Ok(Value::Int(left_value + right_value)),
-                        ast::BinOp::Sub => return Ok(Value::Int(left_value - right_value))
+                        ast::BinOp::Sub => return Ok(Value::Int(left_value - right_value)),
+                        ast::BinOp::Mul => return Ok(Value::Int(left_value * right_value)),
+                        ast::BinOp::Div => return Ok(Value::Int(left_value / right_value)),
+                        ast::BinOp::ShiftLeft => return Ok(Value::Int(left_value << right_value)),
+                        ast::BinOp::ShiftRightArith => return Ok(Value::Int(left_value >> right_value)),
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            loc: Some(expression.loc.clone())
+                        })
                     }
                 },
 
                 (Value::Bool(left_value), Value::Bool(right_value)) => {
                     match op {
+                        ast::BinOp::Eq => return Ok(Value::Bool(left_value == right_value)),
+                        ast::BinOp::Neq => return Ok(Value::Bool(left_value != right_value)),
+                        ast::BinOp::And => return Ok(Value::Bool(left_value && right_value)),
+                        ast::BinOp::Or => return Ok(Value::Bool(left_value || right_value)),
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            loc: Some(expression.loc.clone())
+                        })
+                    }
+                },
+
+                (Value::List(left_ptr), Value::List(right_ptr)) => {
+                    let left_value = match state.heap.get(left_ptr) {
+                        Some(HeapObject::List(l)) => l,
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Expected List Heap Objet")),
+                            loc: Some(expression.loc.clone())
+                        })
+                    };
+
+                    let right_value = match state.heap.get(right_ptr) {
+                        Some(HeapObject::List(l)) => l,
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Expected List Heap Objet")),
+                            loc: Some(expression.loc.clone())
+                        })
+                    };
+
+                    match op {
+                        ast::BinOp::Add => {
+                            let mut new_list = left_value.clone();
+                            new_list.extend(right_value.clone());
+                            let ptr = state.heap.alloc(HeapObject::List(new_list));
+                            Ok(Value::List(ptr))
+                        },
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::Panic(String::from("Invalid type for operator")),
                             loc: Some(expression.loc.clone())
@@ -295,7 +344,21 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             match value {
                 Value::Int(value) => {
                     match op {
-                        ast::UnOp::Neg => return Ok(Value::Int(-value))
+                        ast::UnOp::Neg => return Ok(Value::Int(-value)),
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            loc: Some(expression.loc.clone())
+                        })
+                    }
+                },
+
+                Value::Bool(value) => {
+                    match op {
+                        ast::UnOp::Not => return Ok(Value::Bool(!value)),
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            loc: Some(expression.loc.clone())
+                        })
                     }
                 },
 
@@ -427,7 +490,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             
 
             if indexer_value < 0 || indexer_value >= (indexed_length as i64) {
-                 return Err(InterpreterErrorMessage {
+                return Err(InterpreterErrorMessage {
                     error: InterpreterError::Panic(String::from("Index out of bounds")),
                     loc: Some(indexer.loc.clone())
                 });
@@ -467,7 +530,40 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             Ok(Value::Lambda(ptr))
         },
         ast::Expr::Block { ref statements } => {
-            todo!()
+            match statements.as_slice() {
+                [rest @ .., last] => {
+                    
+                    state.stack.new_frame();
+
+                    for stmt in rest.iter() {
+                        let ret = run_statement(state, stmt, program);
+                        match ret {
+                            Err(e) => {
+                                return Err(e)
+                            },
+                            Ok(Some(v)) => {
+                                return Ok(v)
+                            },
+                            Ok(_) => {}
+                        };
+                    }
+
+                    let value = match &last.stmt {
+                        ast::Stmt::Expression { expression } => {
+                            eval_expression(state, &expression, program)
+                        },
+                        _ => Err(InterpreterErrorMessage {
+                                error: InterpreterError::Panic(String::from("Expected Expression at end of block")),
+                                loc: Some(last.loc.clone())
+                            })
+                    };
+
+                    state.stack.drop_frame();
+
+                    value
+                },
+                [] => todo!()
+            }
         }
     }
 }
@@ -792,7 +888,17 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                         _ => unreachable!()
                     }
                 },
-                _ => todo!()
+                ast::Expr::Tuple(elements) | ast::Expr::List(elements) => {
+                    let value = eval_expression(state, expression, program)?;
+                    let assignment_list: Vec<(String, Value)> = unpack_elements(state, elements, value, &expression.loc)?;
+                    assignment_list.into_iter().for_each(|(var, value)| {
+                        state.stack.update_variable(&var, value);
+                    })
+                },
+                _ => return Err(InterpreterErrorMessage {
+                        error: InterpreterError::Panic(String::from("Invalid LHS")),
+                        loc: Some(target.loc.clone())
+                    })
             }
         },
         ast::Stmt::FunctionCall { expression } => {eval_expression(state, expression, program)?;},
@@ -866,8 +972,58 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
             }
 
             state.stack.drop_frame();
+        },
+        ast::Stmt::Expression { expression } => {
+            return Ok(Some(eval_expression(state, expression, program)?));
         }
     }
 
     return Ok(None);
+}
+
+
+fn unpack_elements(state: &State, variables: &Vec<ast::LocExpr>, value: Value, value_loc: &ast::Loc) -> Result<Vec<(String, Value)>, InterpreterErrorMessage> {
+    let values = match value {
+        Value::Tuple(elements) => elements,
+        Value::List(ptr) => {
+            match state.heap.get(ptr) {
+                Some(HeapObject::List(elements)) => elements.clone(),
+                _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Expected List Heap Object")),
+                            loc: Some(value_loc.clone())
+                        }),
+            }
+        },
+        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Can only unpack Tuples and Lists")),
+                            loc: Some(value_loc.clone())
+                        })
+    };
+
+    if variables.len() != values.len() {
+        return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Unpacking values of unequal length")),
+                            loc: Some(value_loc.clone())
+                        })
+    }
+
+    let mut results: Vec<(String, Value)> = Vec::new();
+
+    for (var, value) in variables.iter().zip(values) {
+        match &var.expr {
+            ast::Expr::Variable(var) => {
+                results.push((var.clone(), value));
+            },
+            ast::Expr::Tuple(elements) | ast::Expr::List(elements) => {
+                let rec = unpack_elements(state, elements, value, value_loc)?;
+                results.extend(rec);
+            },
+            _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Invalid expression, expected variable, list or tuple to unpack into")),
+                            loc: Some(value_loc.clone())
+                        })
+        }
+    }
+
+    Ok(results)
 }
