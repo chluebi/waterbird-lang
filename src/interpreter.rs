@@ -1,10 +1,5 @@
-use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::collections::{HashMap};
 use std::hash::{Hash, Hasher};
-use std::ops::Range;
-use std::fmt;
-
 use slab::Slab;
 
 use crate::{ast};
@@ -19,7 +14,8 @@ pub enum Value {
     Tuple(Vec<Value>),
     List(Ptr),
     Dictionary(Ptr),
-    Lambda(Ptr)
+    Lambda(Ptr),
+    FunctionPtr(String)
 }
 
 impl Hash for Value {
@@ -63,6 +59,7 @@ pub enum HeapObject {
     }
 }
 
+#[derive(Debug)]
 pub struct Heap {
     pub objects: Slab<HeapObject>,
     intern_map: HashMap<String, Ptr>,
@@ -120,6 +117,7 @@ impl Heap {
     }
 }
 
+#[derive(Debug)]
 pub struct Stack {
     pub frames: Vec<Vec<HashMap<String,Value>>>
 }
@@ -130,8 +128,18 @@ impl Stack {
     }
 
     pub fn update_variable(&mut self, name: &str, value: Value) -> Option<Value> {
-        let frame = self.frames.last_mut().unwrap().last_mut().unwrap();
-        frame.insert(String::from(name), value)
+
+        // this defines the semantics of updating variables
+        // we first check if the variable has been "declared" previously, this means we need to update it in that place
+        for frame in self.frames.last_mut().unwrap().into_iter().rev() {
+            if frame.contains_key(name) {
+                return frame.insert(String::from(name), value);
+            }
+        }
+
+        // if not, this is the first declaration
+        let newest_frame = self.frames.last_mut().unwrap().last_mut().unwrap();
+        newest_frame.insert(String::from(name), value)
     } 
 
     pub fn contains_variable(&mut self, name: &str) -> bool {
@@ -163,6 +171,7 @@ impl Stack {
 
     pub fn new_function_context(&mut self) {
         self.frames.push(Vec::new());
+        self.new_frame();
     }
 
     pub fn drop_function_context(&mut self) {
@@ -170,6 +179,7 @@ impl Stack {
     }
 }
 
+#[derive(Debug)]
 pub struct State {
     pub stack: Stack, 
     pub heap: Heap
@@ -203,7 +213,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             match state.stack.get_value(&v) {
                 Some(value) => Ok(value),
                 _ => Err(InterpreterErrorMessage {
-                    error: InterpreterError::Panic(String::from("Variable not found")),
+                    error: InterpreterError::Panic(String::from("Variable not found ") + v),
                     loc: Some(expression.loc.clone())
                 })
             }
@@ -296,13 +306,80 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             }
         },
         ast::Expr::FunctionCall { 
-            ref function_name,
+            ref function,
             ref positional_arguments,
             ref variadic_argument,
             ref keyword_arguments,
             ref keyword_variadic_argument 
         } => {
-            todo!()
+            match eval_expression(state, function, program)? {
+                Value::FunctionPtr(ptr) => 
+                    call_function(
+                        state,
+                        &ptr,
+                        &expression.loc,
+                        positional_arguments,
+                        variadic_argument,
+                        keyword_arguments,
+                        keyword_variadic_argument,
+                        program
+                    ),
+                Value::Lambda(ptr) => {
+                    let (arguments, expr) = match state.heap.get(ptr) {
+                        Some(HeapObject::Lambda { arguments, expr }) => {
+                            (arguments.clone(), expr.clone())
+                        },
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Expected Lambda")),
+                            loc: Some(function.loc.clone())
+                        })
+                    };
+
+                    let argument_values: Result<Vec<Value>, InterpreterErrorMessage>
+                        = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expression, program)).collect();
+
+                    let argument_values: Vec<Value> = argument_values?;
+
+                    if argument_values.len() < arguments.len() {
+                        let pos = argument_values.len();
+                        let missing_arg = arguments.get(pos).unwrap();
+                        return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Missing argument")),
+                            loc: Some(missing_arg.loc.clone())
+                        })
+                    }
+
+                    if argument_values.len() > arguments.len() {
+                        let pos = arguments.len();
+                        
+                        let extra_arg_expression = match pos < positional_arguments.len() {
+                            true => positional_arguments.get(pos).unwrap(),
+                            false => &variadic_argument.clone().unwrap()
+                        };
+
+                        return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Unexpected argument")),
+                            loc: Some(extra_arg_expression.loc.clone())
+                        })
+                    }
+
+                    let new_values: HashMap<String, Value> = arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
+
+                    state.stack.new_function_context();
+
+                    let _ = new_values.into_iter().for_each(|(n,v)| {state.stack.update_variable(&n, v);});
+                    
+                    let value: Result<Value, InterpreterErrorMessage> = eval_expression(state, &expr, program);
+
+                    state.stack.drop_function_context();
+
+                    return value;
+                },
+                _ => Err(InterpreterErrorMessage {
+                        error: InterpreterError::Panic(String::from("Function not found")),
+                        loc: Some(expression.loc.clone())
+                    })
+            }
         },
         ast::Expr::Indexing { ref indexed, ref indexer } => {
             let original_indexed_value = eval_expression(state, &indexed, program)?;
@@ -384,14 +461,14 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 _ => unreachable!()
             }
         },
+        ast::Expr::FunctionPtr(ref s) => {Ok(Value::FunctionPtr(s.clone()))},
         ast::Expr::Lambda { ref arguments, ref expr } => {
             let ptr = state.heap.alloc(HeapObject::Lambda {arguments: arguments.clone(), expr: expr.clone()});
             Ok(Value::Lambda(ptr))
         },
         ast::Expr::Block { ref statements } => {
             todo!()
-        },
-        _ => todo!()
+        }
     }
 }
 
@@ -425,6 +502,207 @@ fn get_indexed_length(state: &mut State, original_indexed_value: &Value, indexed
             error: InterpreterError::Panic(String::from("Only strings, tuples, lists and dictionaries can be indexed")),
             loc: Some(indexed.loc.clone())
         })
+    }
+}
+
+fn call_function(
+    state: &mut State,
+    function_name: &str,
+    loc: &ast::Loc,
+    positional_arguments: &Vec<ast::CallArgument>,
+    variadic_argument: &Option<ast::CallArgument>,
+    keyword_arguments: &Vec<ast::CallKeywordArgument>,
+    keyword_variadic_argument: &Option<ast::CallArgument>,
+    program: &ast::Program
+) -> Result<Value, InterpreterErrorMessage> {
+    let function = match program.functions.get(function_name) {
+        Some(f) => f,
+        _ => return Err(InterpreterErrorMessage {
+                error: InterpreterError::Panic(String::from("Function not found")),
+                loc: Some(loc.clone())
+            })
+    };
+
+    let argument_values: Result<Vec<Value>, InterpreterErrorMessage>
+        = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expression, program)).collect();
+
+    let mut argument_values: Vec<Value> = argument_values?;
+
+    match &variadic_argument {
+        Some(arg) => {
+            let value = eval_expression(state, &arg.expression, program)?;
+            let extra_args: Vec<Value> = match value {
+                Value::Tuple(elements) => elements,
+                Value::List(ptr) => {
+                    match state.heap.get(ptr) {
+                        Some(HeapObject::List(list)) => list.clone(),
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Expected List object")),
+                            loc: Some(arg.loc.clone())
+                        })
+                    }
+                },
+                x => return Err(InterpreterErrorMessage {
+                    error: InterpreterError::Panic("Only tuples or list can be passed as variadic arguments".to_string()),
+                    loc: Some(arg.loc.clone())
+                })
+            };
+            argument_values.extend(extra_args);
+        },
+        _ => ()
+    }
+
+    let keyword_values: Result<HashMap<String, (Option<&ast::CallKeywordArgument>, Value)>, InterpreterErrorMessage> = keyword_arguments.iter()
+        .map(|arg| {
+            eval_expression(state, &arg.expression, program).map(|value| (arg.name.clone(), (Some(arg), value)))
+        })
+        .collect();
+
+    let mut keyword_values: HashMap<String, (Option<&ast::CallKeywordArgument>, Value)> = keyword_values?;
+
+    match keyword_variadic_argument {
+        Some(arg) => {
+            let value = eval_expression(state, &arg.expression, program)?;
+            match value {
+                Value::Dictionary(ptr) => {
+                    let index_ref = match state.heap.get(ptr) {
+                        Some(HeapObject::Dictionary(d)) => d,
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Expected Dict object")),
+                            loc: Some(arg.loc.clone())
+                        })
+                    };
+
+                    for (key, value) in index_ref.iter() {
+                        match key {
+                            Value::Str(ptr) => {
+                                let s = match state.heap.get(*ptr) {
+                                    Some(HeapObject::Str(s)) => s,
+                                    _ => return Err(InterpreterErrorMessage {
+                                        error: InterpreterError::Panic(String::from("Expected Str object")),
+                                        loc: Some(arg.loc.clone())
+                                    })
+                                };
+
+                                if !keyword_values.contains_key(&s.clone()) {
+                                    keyword_values.insert(s.clone(), (None, value.clone()));
+                                }
+                            },
+                            x => return Err(InterpreterErrorMessage {
+                                error: InterpreterError::Panic(String::from("Dicts passed as variadic kwargs have to only have string keys")),
+                                loc: Some(arg.loc.clone())
+                            })                               
+                        }
+                    }
+                },
+                x => return Err(InterpreterErrorMessage {
+                    error: InterpreterError::Panic("Only dict can be passed as keyword variadic arguments".to_string()),
+                    loc: Some(arg.loc.clone())
+                })
+            };
+        },
+        _ => ()
+    }
+
+    if argument_values.len() < function.contract.positional_arguments.len() {
+        let pos = argument_values.len();
+        let missing_arg = function.contract.positional_arguments.get(pos).unwrap();
+        return Err(InterpreterErrorMessage {
+            error: InterpreterError::Panic(String::from("Missing argument")),
+            loc: Some(missing_arg.loc.clone())
+        })
+    }
+
+    if function.contract.variadic_argument.is_none() && argument_values.len() > function.contract.positional_arguments.len() {
+        let pos = function.contract.positional_arguments.len();
+        
+        let extra_arg_expression = match pos < positional_arguments.len() {
+            true => positional_arguments.get(pos).unwrap(),
+            false => &variadic_argument.clone().unwrap()
+        };
+
+        return Err(InterpreterErrorMessage {
+            error: InterpreterError::Panic(String::from("Unexpected argument")),
+            loc: Some(extra_arg_expression.loc.clone())
+        })
+    }
+
+    let mut new_values: HashMap<String, Value> = function.contract.positional_arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
+
+    if argument_values.len() > function.contract.positional_arguments.len() {
+        // from previous logic the only way this happens if we have a variadic accepting argument in the function
+        let extra_args = &argument_values[function.contract.positional_arguments.len()..];
+        let ptr = state.heap.alloc(HeapObject::List(extra_args.to_vec()));
+
+        new_values.insert(function.contract.variadic_argument.clone().unwrap().name, Value::List(ptr));
+    }
+
+    let mut keyword_variadic_arguments: HashMap<Value, Value> = HashMap::new();
+
+    for keyword_arg in function.contract.keyword_arguments.clone() {
+        new_values.insert(keyword_arg.name, eval_expression(state, &keyword_arg.expression, program)?);
+    }
+
+    for (key, (arg, value)) in keyword_values {
+        match function.contract.keyword_arguments.iter().filter(|y| y.name == key).peekable().peek() {
+            Some(_) => {
+                new_values.insert(key, value);
+            }
+            _ => {
+                match &function.contract.keyword_variadic_argument {
+                    Some(_) => {
+                        let ptr = state.heap.alloc(HeapObject::Str(String::from(key)));
+                        keyword_variadic_arguments.insert(Value::Str(ptr), value);
+                    }
+                    _ => match arg {
+                        Some(arg) => {
+                            return Err(InterpreterErrorMessage {
+                                error: InterpreterError::Panic(String::from("Unexpected Argument")),
+                                loc: Some(arg.loc.clone())
+                            })
+                        },
+                        _ => {
+                            // If we do not have an arg passed this means that it originally came from the keyword_variadic argument
+                            return Err(InterpreterErrorMessage {
+                                error: InterpreterError::Panic(String::from("Unexpected Argument")),
+                                loc: Some(keyword_variadic_argument.as_ref().unwrap().loc.clone())
+                            })
+                        },
+                    }
+                }
+            }
+        }
+    }
+
+    match &function.contract.keyword_variadic_argument {
+        Some(arg) => {
+            let ptr = state.heap.alloc(HeapObject::Dictionary(keyword_variadic_arguments));
+            new_values.insert(arg.name.clone(), Value::Dictionary(ptr) );
+        },
+        _ => assert!(keyword_variadic_arguments.is_empty())
+    }
+
+
+
+    state.stack.new_function_context();
+
+    new_values.into_iter().for_each(|(n,v)| {state.stack.update_variable(&n, v);});
+
+    let value = run_statement(state, &function.body, program);
+
+    state.stack.drop_function_context();
+
+    match value {
+        Ok(Some(v)) => {
+            Ok(v)
+        },
+        Ok(_) => {
+            return Err(InterpreterErrorMessage {
+                error: InterpreterError::Panic(String::from("Function should have returned a value")),
+                loc: Some(loc.clone())
+            })
+        },
+        Err(e) => return Err(e)
     }
 }
 

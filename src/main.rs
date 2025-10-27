@@ -1,7 +1,11 @@
 mod ast;
 mod interpreter;
 
-use ast::{Expr, LocExpr, LocStmt, Stmt, BinOp, UnOp};
+// Updated imports to include AST nodes for functions, calls, and control flow
+use ast::{
+    Expr, LocExpr, LocStmt, Stmt, BinOp, UnOp, CallArgument, LambdaArgument,
+    Function, FunctionPrototype, Argument, TypeLiteral, LocTypeLiteral
+};
 use interpreter::{InterpreterError, Value};
 use std::collections::HashMap;
 
@@ -14,102 +18,170 @@ fn loc_stmt(stmt: Stmt) -> LocStmt {
 }
 
 fn build_test_ast() -> LocStmt {
+    // This AST represents the following pseudo-code:
     // {
-    //   var x = 10;
-    //   var y = 20;
-    //   var z = x + (y + -5); // z = 10 + (20 - 5) = 25
-    //   var my_list = [1, 2, 3];
-    //   my_list[1] = z; // my_list = [1, 25, 3]
-    //   var my_dict = {"a": 100, "b": 200};
-    //   my_dict["a"] = my_list[1]; // my_dict = {"a": 25, "b": 200}
-    //   var my_tuple = (my_dict["a"], "hello", 99); // my_tuple = (25, "hello", 99)
-    //   return my_tuple;
+    //   // 1. Lambda Definition
+    //   var my_add = fn(a, b) { a + b };
+    //
+    //   // 2. Lambda Call
+    //   var z = my_add(10, 15); // z = 25
+    //
+    //   // 3. If/Else Control Flow
+    //   var result_str = "";
+    //   if (true) { // Using `true` since interpreter lacks comparison ops
+    //     result_str = "big";
+    //   } else {
+    //     result_str = "small";
+    //   } // result_str = "big"
+    //
+    //   // 4. While Control Flow
+    //   var run_loop = true;
+    //   var my_list = [100];
+    //   while (run_loop) {
+    //     my_list[0] = my_list[0] + z; // my_list[0] = 100 + 25 = 125
+    //     run_loop = false; // Manually stop loop
+    //   } // my_list = [125]
+    //
+    //   // 5. External Function Call (to 'test_func' defined in main)
+    //   var func_result = test_func(my_list[0]); // func_result = test_func(125) = 125 + 125 = 250
+    //
+    //   // 6. Return all computed values
+    //   return (z, result_str, my_list[0], func_result); // (25, "big", 125, 250)
     // }
 
     let statements = vec![
-        // var x = 10;
+        // var my_add = fn(a, b) { a + b };
         loc_stmt(Stmt::Assignment {
-            target: loc_expr(Expr::Variable("x".to_string())),
-            expression: loc_expr(Expr::Int(10)),
-        }),
-        // var y = 20;
-        loc_stmt(Stmt::Assignment {
-            target: loc_expr(Expr::Variable("y".to_string())),
-            expression: loc_expr(Expr::Int(20)),
-        }),
-        // var z = x + (y + -5);
-        loc_stmt(Stmt::Assignment {
-            target: loc_expr(Expr::Variable("z".to_string())),
-            expression: loc_expr(Expr::BinOp {
-                op: BinOp::Add,
-                left: Box::new(loc_expr(Expr::Variable("x".to_string()))),
-                right: Box::new(loc_expr(Expr::BinOp {
+            target: loc_expr(Expr::Variable("my_add".to_string())),
+            expression: loc_expr(Expr::Lambda {
+                arguments: vec![
+                    LambdaArgument { name: "a".to_string(), loc: 0..0 },
+                    LambdaArgument { name: "b".to_string(), loc: 0..0 },
+                ],
+                expr: Box::new(loc_expr(Expr::BinOp {
                     op: BinOp::Add,
-                    left: Box::new(loc_expr(Expr::Variable("y".to_string()))),
-                    right: Box::new(loc_expr(Expr::Unop {
-                        op: UnOp::Neg,
-                        expr: Box::new(loc_expr(Expr::Int(5))),
-                    })),
+                    left: Box::new(loc_expr(Expr::Variable("a".to_string()))),
+                    right: Box::new(loc_expr(Expr::Variable("b".to_string()))),
                 })),
             }),
         }),
-        // var my_list = [1, 2, 3];
+
+        // var z = my_add(10, 15);
+        loc_stmt(Stmt::Assignment {
+            target: loc_expr(Expr::Variable("z".to_string())),
+            expression: loc_expr(Expr::FunctionCall {
+                function: Box::new(loc_expr(Expr::Variable("my_add".to_string()))),
+                positional_arguments: vec![
+                    CallArgument { expression: Box::new(loc_expr(Expr::Int(10))), loc: 0..0 },
+                    CallArgument { expression: Box::new(loc_expr(Expr::Int(15))), loc: 0..0 },
+                ],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+            }),
+        }), // z = 25
+
+        // var result_str = "";
+        loc_stmt(Stmt::Assignment {
+            target: loc_expr(Expr::Variable("result_str".to_string())),
+            expression: loc_expr(Expr::Str("".to_string())),
+        }),
+
+        // if (true) { ... } else { ... }
+        loc_stmt(Stmt::IfElse {
+            condition: loc_expr(Expr::Bool(true)), // Faking a condition like (z > 20)
+            if_body: Box::new(loc_stmt(Stmt::Block {
+                statements: vec![
+                    loc_stmt(Stmt::Assignment {
+                        target: loc_expr(Expr::Variable("result_str".to_string())),
+                        expression: loc_expr(Expr::Str("big".to_string())),
+                    }),
+                ]
+            })),
+            else_body: Box::new(loc_stmt(Stmt::Block {
+                statements: vec![
+                    loc_stmt(Stmt::Assignment {
+                        target: loc_expr(Expr::Variable("result_str".to_string())),
+                        expression: loc_expr(Expr::Str("small".to_string())),
+                    }),
+                ]
+            })),
+        }), // result_str = "big"
+
+        // var run_loop = true;
+        loc_stmt(Stmt::Assignment {
+            target: loc_expr(Expr::Variable("run_loop".to_string())),
+            expression: loc_expr(Expr::Bool(true)),
+        }),
+
+        // var my_list = [100];
         loc_stmt(Stmt::Assignment {
             target: loc_expr(Expr::Variable("my_list".to_string())),
             expression: loc_expr(Expr::List(vec![
-                loc_expr(Expr::Int(1)),
-                loc_expr(Expr::Int(2)),
-                loc_expr(Expr::Int(3)),
+                loc_expr(Expr::Int(100)),
             ])),
         }),
-        // my_list[1] = z;
+
+        // while (run_loop) { ... }
+        loc_stmt(Stmt::While {
+            condition: loc_expr(Expr::Variable("run_loop".to_string())),
+            body: Box::new(loc_stmt(Stmt::Block {
+                statements: vec![
+                    // my_list[0] = my_list[0] + z;
+                    loc_stmt(Stmt::Assignment {
+                        target: loc_expr(Expr::Indexing {
+                            indexed: Box::new(loc_expr(Expr::Variable("my_list".to_string()))),
+                            indexer: Box::new(loc_expr(Expr::Int(0))),
+                        }),
+                        expression: loc_expr(Expr::BinOp {
+                            op: BinOp::Add,
+                            left: Box::new(loc_expr(Expr::Indexing {
+                                indexed: Box::new(loc_expr(Expr::Variable("my_list".to_string()))),
+                                indexer: Box::new(loc_expr(Expr::Int(0))),
+                            })),
+                            right: Box::new(loc_expr(Expr::Variable("z".to_string()))),
+                        }),
+                    }), // my_list[0] = 100 + 25 = 125
+                    // run_loop = false;
+                    loc_stmt(Stmt::Assignment {
+                        target: loc_expr(Expr::Variable("run_loop".to_string())),
+                        expression: loc_expr(Expr::Bool(false)),
+                    }),
+                ]
+            })),
+        }), // my_list[0] is 125
+
+        // var func_result = test_func(my_list[0]);
         loc_stmt(Stmt::Assignment {
-            target: loc_expr(Expr::Indexing {
-                indexed: Box::new(loc_expr(Expr::Variable("my_list".to_string()))),
-                indexer: Box::new(loc_expr(Expr::Int(1))),
+            target: loc_expr(Expr::Variable("func_result".to_string())),
+            expression: loc_expr(Expr::FunctionCall {
+                function: Box::new(loc_expr(Expr::FunctionPtr("test_func".to_string()))),
+                positional_arguments: vec![
+                    CallArgument {
+                        expression: Box::new(loc_expr(Expr::Indexing {
+                            indexed: Box::new(loc_expr(Expr::Variable("my_list".to_string()))),
+                            indexer: Box::new(loc_expr(Expr::Int(0))),
+                        })), // Pass 125
+                        loc: 0..0
+                    },
+                ],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
             }),
-            expression: loc_expr(Expr::Variable("z".to_string())),
-        }),
-        // var my_dict = {"a": 100, "b": 200};
-        loc_stmt(Stmt::Assignment {
-            target: loc_expr(Expr::Variable("my_dict".to_string())),
-            expression: loc_expr(Expr::Dictionary(vec![
-                (
-                    loc_expr(Expr::Str("a".to_string())),
-                    loc_expr(Expr::Int(100)),
-                ),
-                (
-                    loc_expr(Expr::Str("b".to_string())),
-                    loc_expr(Expr::Int(200)),
-                ),
-            ])),
-        }),
-        // my_dict["a"] = my_list[1];
-        loc_stmt(Stmt::Assignment {
-            target: loc_expr(Expr::Indexing {
-                indexed: Box::new(loc_expr(Expr::Variable("my_dict".to_string()))),
-                indexer: Box::new(loc_expr(Expr::Str("a".to_string()))),
-            }),
-            expression: loc_expr(Expr::Indexing {
-                indexed: Box::new(loc_expr(Expr::Variable("my_list".to_string()))),
-                indexer: Box::new(loc_expr(Expr::Int(1))),
-            }),
-        }),
-        // var my_tuple = (my_dict["a"], "hello", 99);
-        loc_stmt(Stmt::Assignment {
-            target: loc_expr(Expr::Variable("my_tuple".to_string())),
-            expression: loc_expr(Expr::Tuple(vec![
-                loc_expr(Expr::Indexing {
-                    indexed: Box::new(loc_expr(Expr::Variable("my_dict".to_string()))),
-                    indexer: Box::new(loc_expr(Expr::Str("a".to_string()))),
-                }),
-                loc_expr(Expr::Str("hello".to_string())),
-                loc_expr(Expr::Int(99)),
-            ])),
-        }),
-        // return my_tuple;
+        }), // func_result = test_func(125) = 250
+
+        // return (z, result_str, my_list[0], func_result);
         loc_stmt(Stmt::Return {
-            expression: loc_expr(Expr::Variable("my_tuple".to_string())),
+            expression: loc_expr(Expr::Tuple(vec![
+                loc_expr(Expr::Variable("z".to_string())), // 25
+                loc_expr(Expr::Variable("result_str".to_string())), // "big"
+                loc_expr(Expr::Indexing {
+                    indexed: Box::new(loc_expr(Expr::Variable("my_list".to_string()))),
+                    indexer: Box::new(loc_expr(Expr::Int(0))),
+                }), // 125
+                loc_expr(Expr::Variable("func_result".to_string())), // 250
+            ])),
         }),
     ];
 
@@ -171,6 +243,7 @@ fn print_value(value: &Value, heap: &interpreter::Heap) {
             }
         }
         Value::Lambda(ptr) => print!("[Lambda Ptr: {}]", ptr),
+        _ => todo!()
     }
 }
 
@@ -179,9 +252,44 @@ fn main() {
 
     let mut state = interpreter::State::new();
 
-    let program = ast::Program {
-        functions: HashMap::new(),
+    // --- NEW: Define a function for the program ---
+    // Helper to create placeholder type literals, as the interpreter doesn't use them
+    fn dummy_type_literal() -> ast::LocTypeLiteral {
+        ast::LocTypeLiteral {
+            expr: ast::TypeLiteral::Void,
+            loc: 0..0,
+        }
+    }
+
+    let mut functions = HashMap::new();
+    // Define `fn test_func(p1) { return p1 + p1; }`
+    let test_func = ast::Function {
+        name: "test_func".to_string(),
+        contract: ast::FunctionPrototype {
+            positional_arguments: vec![ast::Argument {
+                name: "p1".to_string(),
+                arg_type: dummy_type_literal(),
+                loc: 0..0,
+            }],
+            variadic_argument: None,
+            keyword_arguments: vec![],
+            keyword_variadic_argument: None,
+            return_type: dummy_type_literal(),
+        },
+        body: Box::new(loc_stmt(Stmt::Return {
+            expression: loc_expr(Expr::BinOp {
+                op: BinOp::Add,
+                left: Box::new(loc_expr(Expr::Variable("p1".to_string()))),
+                right: Box::new(loc_expr(Expr::Variable("p1".to_string()))),
+            }),
+        })),
+        loc: 0..0,
     };
+    functions.insert("test_func".to_string(), test_func);
+
+    let program = ast::Program { functions };
+    // --- END NEW ---
+
 
     let test_block = build_test_ast();
 

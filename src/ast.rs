@@ -133,8 +133,8 @@ pub enum TypeLiteral {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocTypeLiteral {
-    expr: TypeLiteral,
-    loc: Loc
+    pub expr: TypeLiteral,
+    pub loc: Loc
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,7 +188,7 @@ pub enum Expr {
         expr: Box<LocExpr>
     },
     FunctionCall {
-        function_name: Box<LocExpr>,
+        function: Box<LocExpr>,
         positional_arguments: Vec<CallArgument>,
         variadic_argument: Option<CallArgument>,
         keyword_arguments: Vec<CallKeywordArgument>,
@@ -198,6 +198,7 @@ pub enum Expr {
         indexed: Box<LocExpr>,
         indexer: Box<LocExpr>
     },
+    FunctionPtr(String),
     Lambda {
        arguments: Vec<LambdaArgument>,
        expr: Box<LocExpr>
@@ -247,12 +248,6 @@ pub struct LocStmt {
     pub loc: Loc 
 }
 
-
-#[derive(Debug, Clone)]
-pub struct Body {
-    pub statements: Vec<LocStmt>
-}
-
 #[derive(Debug, Clone)]
 pub struct Argument {
     pub name: String,
@@ -282,7 +277,7 @@ pub struct FunctionPrototype {
 pub struct Function {
     pub name: String,
     pub contract: FunctionPrototype,
-    pub body: Body,
+    pub body: Box<LocStmt>,
     pub loc: Loc 
 }
 
