@@ -212,10 +212,15 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
         ast::Expr::Variable(ref v) => {
             match state.stack.get_value(&v) {
                 Some(value) => Ok(value),
-                _ => Err(InterpreterErrorMessage {
-                    error: InterpreterError::Panic(String::from("Variable not found ") + v),
-                    loc: Some(expression.loc.clone())
-                })
+                _ => {
+                    match program.functions.get(v) {
+                        Some(_) => Ok(Value::FunctionPtr(v.clone())),
+                        _ => Err(InterpreterErrorMessage {
+                            error: InterpreterError::Panic(String::from("Variable not found ") + v),
+                            loc: Some(expression.loc.clone())
+                        })
+                    }
+                }
             }
         },
         ast::Expr::Int(ref i) => Ok(Value::Int(*i)),
@@ -279,6 +284,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         ast::BinOp::Sub => return Ok(Value::Int(left_value - right_value)),
                         ast::BinOp::Mul => return Ok(Value::Int(left_value * right_value)),
                         ast::BinOp::Div => return Ok(Value::Int(left_value / right_value)),
+                        ast::BinOp::Mod => return Ok(Value::Int(left_value % right_value)),
                         ast::BinOp::ShiftLeft => return Ok(Value::Int(left_value << right_value)),
                         ast::BinOp::ShiftRightArith => return Ok(Value::Int(left_value >> right_value)),
                         _ => return Err(InterpreterErrorMessage {
@@ -338,7 +344,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         })
             }
         },
-        ast::Expr::Unop { ref op, ref expr } => {
+        ast::Expr::UnOp { ref op, ref expr } => {
             let value = eval_expression(state, &expr, program)?;
 
             match value {
@@ -399,7 +405,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     };
 
                     let argument_values: Result<Vec<Value>, InterpreterErrorMessage>
-                        = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expression, program)).collect();
+                        = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expr, program)).collect();
 
                     let argument_values: Vec<Value> = argument_values?;
 
@@ -549,7 +555,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     }
 
                     let value = match &last.stmt {
-                        ast::Stmt::Expression { expression } => {
+                        ast::Stmt::Expression { expr: expression } => {
                             eval_expression(state, &expression, program)
                         },
                         _ => Err(InterpreterErrorMessage {
@@ -620,13 +626,13 @@ fn call_function(
     };
 
     let argument_values: Result<Vec<Value>, InterpreterErrorMessage>
-        = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expression, program)).collect();
+        = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expr, program)).collect();
 
     let mut argument_values: Vec<Value> = argument_values?;
 
     match &variadic_argument {
         Some(arg) => {
-            let value = eval_expression(state, &arg.expression, program)?;
+            let value = eval_expression(state, &arg.expr, program)?;
             let extra_args: Vec<Value> = match value {
                 Value::Tuple(elements) => elements,
                 Value::List(ptr) => {
@@ -650,7 +656,7 @@ fn call_function(
 
     let keyword_values: Result<HashMap<String, (Option<&ast::CallKeywordArgument>, Value)>, InterpreterErrorMessage> = keyword_arguments.iter()
         .map(|arg| {
-            eval_expression(state, &arg.expression, program).map(|value| (arg.name.clone(), (Some(arg), value)))
+            eval_expression(state, &arg.expr, program).map(|value| (arg.name.clone(), (Some(arg), value)))
         })
         .collect();
 
@@ -658,7 +664,7 @@ fn call_function(
 
     match keyword_variadic_argument {
         Some(arg) => {
-            let value = eval_expression(state, &arg.expression, program)?;
+            let value = eval_expression(state, &arg.expr, program)?;
             match value {
                 Value::Dictionary(ptr) => {
                     let index_ref = match state.heap.get(ptr) {
@@ -736,7 +742,7 @@ fn call_function(
     let mut keyword_variadic_arguments: HashMap<Value, Value> = HashMap::new();
 
     for keyword_arg in function.contract.keyword_arguments.clone() {
-        new_values.insert(keyword_arg.name, eval_expression(state, &keyword_arg.expression, program)?);
+        new_values.insert(keyword_arg.name, eval_expression(state, &keyword_arg.expr, program)?);
     }
 
     for (key, (arg, value)) in keyword_values {
@@ -805,7 +811,7 @@ fn call_function(
 
 pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program) -> Result<Option<Value>, InterpreterErrorMessage> {
     match &stmt.stmt {
-        ast::Stmt::Assignment { target, expression } => {
+        ast::Stmt::Assignment { target, expr: expression } => {
             match &target.expr {
                 ast::Expr::Variable(v) => {
                     let value = eval_expression(state, expression, program)?;
@@ -901,12 +907,12 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                     })
             }
         },
-        ast::Stmt::FunctionCall { expression } => {eval_expression(state, expression, program)?;},
-        ast::Stmt::Return { expression } => {
+        ast::Stmt::FunctionCall { expr: expression } => {eval_expression(state, expression, program)?;},
+        ast::Stmt::Return { expr: expression } => {
             let value = eval_expression(state, expression, program)?;
             return Ok(Some(value));
         },
-        ast::Stmt::IfElse { condition, if_body, else_body } => {
+        ast::Stmt::IfElse { cond: condition, if_body, else_body } => {
             let eval_condition = eval_expression(state, &condition, program)?;
 
             match eval_condition {
@@ -924,7 +930,7 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                 }
             };
         },
-        ast::Stmt::While { condition, body } => {
+        ast::Stmt::While { cond: condition, body } => {
             let eval_condition = eval_expression(state, condition, program)?;
 
             let mut cond = match eval_condition {
@@ -973,7 +979,7 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
 
             state.stack.drop_frame();
         },
-        ast::Stmt::Expression { expression } => {
+        ast::Stmt::Expression { expr: expression } => {
             return Ok(Some(eval_expression(state, expression, program)?));
         }
     }
@@ -1026,4 +1032,13 @@ fn unpack_elements(state: &State, variables: &Vec<ast::LocExpr>, value: Value, v
     }
 
     Ok(results)
+}
+
+
+pub fn interpret(program: &ast::Program) -> Result<Value, InterpreterErrorMessage> {
+    let mut state = State::new();
+
+    let main_func = program.functions.get("main").unwrap();
+
+    return Ok(run_statement(&mut state, &main_func.body, program)?.unwrap());
 }

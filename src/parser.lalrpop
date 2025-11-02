@@ -1,0 +1,649 @@
+use std::str::FromStr;
+use std::collections::HashMap;
+
+use crate::parse_ast;
+
+grammar;
+
+// The entry point of the grammar
+pub Grammar: parse_ast::Program = {
+    <fs:Functions> => {
+        parse_ast::Program {
+            functions: fs
+        }
+    }
+};
+
+Functions: HashMap<String, parse_ast::Function> = {
+    <fs:Functions> <f:Function> => {
+        let mut funcs = fs;
+        funcs.insert(f.name.clone(), f);
+        funcs
+    },
+    <f:Function> => {
+        let mut funcs = HashMap::new();
+        funcs.insert(f.name.clone(), f);
+        funcs
+    }
+};
+
+Function: parse_ast::Function = {
+    <start: @L> <name:Ident> "(" <args:Arguments> ")" <end: @R> "{" <body:Body> "}" => {
+        parse_ast::Function {
+            name: name,
+            arguments: args,
+            body: Box::new(body),
+            loc: start..end
+        }
+    }
+};
+
+
+Arguments: Vec<parse_ast::LocArgument> = {
+    <arg:Argument> "," <args:Arguments> => {
+        let mut args = args;
+        args.insert(0, arg);
+        args
+    },
+    <arg:Argument> => vec![arg],
+    => vec![]
+};
+
+
+Argument: parse_ast::LocArgument = {
+    <start: @L> <i:Ident> <end: @R> => parse_ast::LocArgument{
+        argument: parse_ast::Argument::PositionalArgument(i),
+        loc: start..end
+    },
+    <start: @L> "*"<i:Ident> <end: @R> => parse_ast::LocArgument{
+        argument: parse_ast::Argument::Variadic(i),
+        loc: start..end
+    },
+    <start: @L> <i:Ident> "=" <e:Expression> <end: @R> => parse_ast::LocArgument{
+        argument: parse_ast::Argument::KeywordArgument(i, e),
+        loc: start..end
+    },
+    <start: @L> "**"<i:Ident> <end: @R> => parse_ast::LocArgument{
+        argument: parse_ast::Argument::KeywordVariadic(i),
+        loc: start..end
+    }
+};
+
+
+
+Body: parse_ast::LocStmt = {
+    <start: @L> <stmts:Statements> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Block {
+                statements: stmts
+            },
+            loc: start..end
+        }
+        
+    },
+};
+
+Statements: Vec<parse_ast::LocStmt> = {
+    <stmt:Statement> ";" <stmts:Statements> => {
+        let mut stmts = stmts;
+        stmts.insert(0, stmt);
+        stmts
+    },
+    <c_stmts:ControlFlow> <stmts:Statements> => {
+        let mut c_stmts = c_stmts;
+        c_stmts.extend(stmts);
+        c_stmts
+    },
+    <stmt:Statement> => vec![stmt],
+    => vec![]
+};
+
+
+ControlFlow: Vec<parse_ast::LocStmt> = {
+    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:Body> "}" <end2: @R>  => {
+        vec![
+            parse_ast::LocStmt {
+                stmt: parse_ast::Stmt::IfElse {
+                    cond: c,
+                    if_body: Box::new(if_body),
+                    else_body: Box::new(parse_ast::LocStmt {
+                        stmt: parse_ast::Stmt::Block {
+                            statements: vec![]
+                        },
+                        loc: end2..end2
+                    })
+                },
+                loc: start..end
+            }
+        ]
+    },
+    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:Body> "}" "else" "{" <else_body:Body> "}"  => {
+        vec![
+            parse_ast::LocStmt {
+                stmt: parse_ast::Stmt::IfElse {
+                    cond: c,
+                    if_body: Box::new(if_body),
+                    else_body: Box::new(else_body)
+                },
+                loc: start..end
+            }
+        ]
+    },
+    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:Body> "}" "else" <start2: @L> <next_cf:ControlFlow> <end2: @R> => {
+        vec![
+            parse_ast::LocStmt {
+                stmt: parse_ast::Stmt::IfElse {
+                    cond: c,
+                    if_body: Box::new(if_body),
+                    else_body: Box::new(parse_ast::LocStmt {
+                        stmt: parse_ast::Stmt::Block {
+                            statements: next_cf
+                        },
+                        loc: start2..end2
+                    })
+                },
+                loc: start..end
+            }
+        ]
+    },
+    <start: @L> "while" <c:Expression> <end: @R>  "{" <b:Body> "}" => {
+        vec![
+            parse_ast::LocStmt {
+                stmt: parse_ast::Stmt::While {
+                    cond: c,
+                    body: Box::new(b)
+                },
+                loc: start..end
+            }
+        ]
+    }
+}
+
+
+Statement: parse_ast::LocStmt = {
+    <start: @L> <t:LHSExpression> "=" <e:Expression> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Assignment {
+                target: t,
+                expr: e
+            },
+            loc: start..end
+        }
+    },
+    <start: @L> <f:Ident> <end_ident: @R> "(" <args:CallArguments> ")" <end: @R> => parse_ast::LocStmt {
+        stmt: parse_ast::Stmt::FunctionCall {
+            expr: parse_ast::LocExpr {
+                expr: parse_ast::Expr::FunctionCall {
+                    function: Box::new(parse_ast::LocExpr {
+                        expr: parse_ast::Expr::Variable(f),
+                        loc: start..end_ident
+                    }),
+                    arguments: args
+                },
+                loc: start..end
+            }
+        },
+        loc: start..end
+    },
+    <start: @L> "(" <f:Expression> ")" "(" <args:CallArguments> ")" <end: @R> => parse_ast::LocStmt {
+        stmt: parse_ast::Stmt::FunctionCall {
+            expr: parse_ast::LocExpr {
+                expr: parse_ast::Expr::FunctionCall {
+                    function: Box::new(f),
+                    arguments: args
+                },
+                loc: start..end
+            }
+        },
+        loc: start..end
+    },
+    <start: @L> "return" <e:Expression> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Return {
+                expr: e
+            },
+            loc: start..end
+        }
+    },
+
+    <start: @L> <t:LHSExpression> "+=" <e:Expression> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Assignment {
+                target: t.clone(),
+                expr: parse_ast::LocExpr {
+                    expr: parse_ast::Expr::BinOp {
+                        op: parse_ast::BinOp::Add,
+                        left: Box::new(t),
+                        right: Box::new(e)
+                    },
+                    loc: start..end
+                }
+            },
+            loc: start..end
+        }
+    },
+    <start: @L> <t:LHSExpression> "-=" <e:Expression> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Assignment {
+                target: t.clone(),
+                expr: parse_ast::LocExpr {
+                    expr: parse_ast::Expr::BinOp {
+                        op: parse_ast::BinOp::Sub,
+                        left: Box::new(t),
+                        right: Box::new(e)
+                    },
+                    loc: start..end
+                }
+            },
+            loc: start..end
+        }
+    },
+    <start: @L> <t:LHSExpression> "*=" <e:Expression> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Assignment {
+                target: t.clone(),
+                expr: parse_ast::LocExpr {
+                    expr: parse_ast::Expr::BinOp {
+                        op: parse_ast::BinOp::Mul,
+                        left: Box::new(t),
+                        right: Box::new(e)
+                    },
+                    loc: start..end
+                }
+            },
+            loc: start..end
+        }
+    },
+    <start: @L> <t:LHSExpression> "/=" <e:Expression> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Assignment {
+                target: t.clone(),
+                expr: parse_ast::LocExpr {
+                    expr: parse_ast::Expr::BinOp {
+                        op: parse_ast::BinOp::Div,
+                        left: Box::new(t),
+                        right: Box::new(e)
+                    },
+                    loc: start..end
+                }
+            },
+            loc: start..end
+        }
+    },
+
+    <start: @L> <t:LHSExpression> "++" <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Assignment {
+                target: t.clone(),
+                expr: parse_ast::LocExpr {
+                    expr: parse_ast::Expr::BinOp {
+                        op: parse_ast::BinOp::Add,
+                        left: Box::new(t),
+                        right: Box::new(parse_ast::LocExpr { 
+                            expr: parse_ast::Expr::Int(1),
+                            loc: start..end
+                        })
+                    },
+                    loc: start..end
+                }
+            },
+            loc: start..end
+        }
+    },
+    <start: @L> <t:LHSExpression> "--" <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Assignment {
+                target: t.clone(),
+                expr: parse_ast::LocExpr {
+                    expr: parse_ast::Expr::BinOp {
+                        op: parse_ast::BinOp::Sub,
+                        left: Box::new(t),
+                        right: Box::new(parse_ast::LocExpr { 
+                            expr: parse_ast::Expr::Int(1),
+                            loc: start..end
+                        })
+                    },
+                    loc: start..end
+                }
+            },
+            loc: start..end
+        }
+    }
+};
+
+LHSExpression: parse_ast::LocExpr = {
+    <start: @L> <id: Ident> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Variable(id),
+        loc: start..end
+    },
+    <start: @L> <indexed:LHSExpression> "[" <indexer: IndexExpression> "]" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Indexing {
+            indexed: Box::new(indexed), indexer: Box::new(indexer)
+        },
+        loc: start..end
+    }
+};
+
+
+
+CallArguments: Vec<parse_ast::LocCallArgument> = {
+    <arg:CallArgument> "," <args:CallArguments> => {
+        let mut args = args;
+        args.insert(0, arg);
+        args
+    },
+    <arg:CallArgument> => vec![arg],
+    => vec![]
+};
+
+
+CallArgument: parse_ast::LocCallArgument = {
+    <start: @L> <e:Expression> <end: @R> => parse_ast::LocCallArgument{
+        argument: parse_ast::CallArgument::PositionalArgument(e),
+        loc: start..end
+    },
+    <start: @L> "*"<e:Expression> <end: @R> => parse_ast::LocCallArgument{
+        argument: parse_ast::CallArgument::Variadic(e),
+        loc: start..end
+    },
+    <start: @L> <i:Ident> "=" <e:Expression> <end: @R> => parse_ast::LocCallArgument{
+        argument: parse_ast::CallArgument::KeywordArgument(i, e),
+        loc: start..end
+    },
+    <start: @L> "**"<e:Expression> <end: @R> => parse_ast::LocCallArgument{
+        argument: parse_ast::CallArgument::KeywordVariadic(e),
+        loc: start..end
+    }
+};
+
+Expression: parse_ast::LocExpr = {
+    #[precedence(level="0")]
+    Term,
+    #[precedence(level="1")] #[assoc(side="left")]
+    <start: @L> "(" <e:Expression> "," <elts: CommaSeperatedExpressions> ")" <end: @R> => {
+        let mut elts = elts;
+        elts.insert(0, e);
+        return parse_ast::LocExpr {
+            expr: parse_ast::Expr::Tuple(elts),
+            loc: start..end
+        };
+    },
+    <start: @L> "[" <elts: CommaSeperatedExpressions> "]" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::List(elts),
+        loc: start..end
+    },
+    <start: @L> "{" <elts: CommaSeperatedMappings> "}" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Dictionary(elts),
+        loc: start..end
+    },
+    <start: @L> <indexed: Expression> "[" <indexer: IndexExpression> "]" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Indexing {
+            indexed: Box::new(indexed), indexer: Box::new(indexer)
+        },
+        loc: start..end
+    },
+    <start: @L> <f: Expression> "(" <args:CallArguments> ")" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::FunctionCall {
+            function: Box::new(f),
+            arguments: args
+        },
+        loc: start..end
+    },
+    #[precedence(level="2")] #[assoc(side="left")]
+    <start: @L> "-" <e:Term> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::UnOp {
+            op: parse_ast::UnOp::Neg,
+            expr: Box::new(e),
+        },
+        loc: start..end
+    },
+    <start: @L> "!" <e:Term> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::UnOp {
+            op: parse_ast::UnOp::Not,
+            expr: Box::new(e),
+        },
+        loc: start..end
+    },
+    #[precedence(level="3")] #[assoc(side="left")]
+    <start: @L> <l:Expression> "*" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Mul,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    <start: @L> <l:Expression> "/" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Div,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    <start: @L> <l:Expression> "%" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Mod,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    #[precedence(level="4")] #[assoc(side="left")]
+    <start: @L> <l:Expression> "+" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Add,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    <start: @L> <l:Expression> "-" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Sub,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    #[precedence(level="7")] #[assoc(side="left")]
+    <start: @L> <l:Expression> "&&" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::And,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    #[precedence(level="8")] #[assoc(side="left")]
+    <start: @L> <l:Expression> "||" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Or,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    #[precedence(level="9")] #[assoc(side="left")]
+    <start: @L> <l:Expression> "==" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Eq,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    <start: @L> <l:Expression> "!=" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Neq,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    <start: @L> <l:Expression> "<" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Lt,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    <start: @L> <l:Expression> ">" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Gt,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    <start: @L> <l:Expression> "<=" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Leq,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    <start: @L> <l:Expression> ">=" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Geq,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+}
+
+IndexExpression: parse_ast::LocExpr = {
+    Expression
+}
+
+
+Term: parse_ast::LocExpr = {
+    <start: @L> "true" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Bool(true),
+        loc: start..end
+    },
+    <start: @L> "false" <end: @R> => parse_ast::LocExpr { 
+        expr: parse_ast::Expr::Bool(false),
+        loc: start..end
+    },
+    <start: @L> <n:Num> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Int(n),
+        loc: start..end
+    },
+    <start: @L> <s:String> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Str(s),
+        loc: start..end
+    },
+    <start: @L> <id: Ident> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Variable(id),
+        loc: start..end
+    },
+    "(" <e: Expression> ")" => e
+}
+
+
+CommaSeperatedExpressions: Vec<parse_ast::LocExpr> = {
+    <exp:Expression> "," <exps:CommaSeperatedExpressions> => {
+        let mut exps = exps;
+        exps.insert(0, exp);
+        exps
+    },
+    <exp:Expression> => vec![exp],
+    => vec![]
+}
+
+CommaSeperatedMappings: Vec<(parse_ast::LocExpr, parse_ast::LocExpr)> = {
+    <m:Mapping> "," <mappings:CommaSeperatedMappings> => {
+        let mut mappings = mappings;
+        mappings.insert(0, m);
+        mappings
+    },
+    <m:Mapping> => vec![m],
+    => vec![]
+}
+
+Mapping: (parse_ast::LocExpr, parse_ast::LocExpr) = {
+    <key:Expression> ":" <value:Expression> => (key, value)
+}
+
+
+
+Type: parse_ast::TypeLiteral = {
+    "int" => parse_ast::TypeLiteral::Int
+}
+
+
+Num: i64 = <s:NumString> => i64::from_str(s).unwrap();
+
+String: String = {
+    <s:StringString> => s[1..s.len() - 1].to_string(),
+};
+
+
+Ident: String = {
+    <id:IdentString> => id.to_string(),
+};
+
+
+match { 
+    r#"[0-9]+"# => NumString,
+    r#"[a-zA-Z_][a-zA-Z0-9_]*"# => IdentString,
+
+    ";",
+    ":",
+    "(",
+    ")",
+    "[",
+    "]",
+    "{",
+    "}",
+    ",",
+
+    "**",
+
+    "if",
+    "else",
+    "while",
+    "for",
+    "return",
+    "true",
+    "false",
+
+    "int",
+    "bool",
+    "string",
+    "tuple",
+    "list",
+    "dict",
+
+    "=",
+    "+",
+    "-",
+    "*",
+    "/",
+    "%",
+    "++",
+    "--",
+    "??",
+    "&&",
+    "||",
+    "+=",
+    "-=",
+    "*=",
+    "/=",
+    "<",
+    ">",
+    ">=",
+    "<=",
+    "==",
+    "!=",
+    "!",
+
+
+    "\""
+} else {
+    r#"\"[^\"]*\""# => StringString
+}

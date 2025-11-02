@@ -6,8 +6,8 @@ pub type Loc = Range<usize>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeywordArgumentType {
-    name: String,
-    arg_type: Box<Type>
+    pub name: String,
+    pub arg_type: Box<Type>
 }
 
 impl fmt::Display for KeywordArgumentType {
@@ -18,6 +18,7 @@ impl fmt::Display for KeywordArgumentType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
+    Unknown,
     Generic(String),
     Void,
     Int,
@@ -42,6 +43,7 @@ pub enum Type {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Type::Unknown => write!(f, "unknown"),
             Type::Generic(s) => write!(f, "{}", s),
             Type::Void => write!(f, "()"),
             Type::Int => write!(f, "int"),
@@ -104,8 +106,8 @@ impl fmt::Display for Type {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeywordArgumentTypeLiteral {
-    name: String,
-    arg_type: Box<LocTypeLiteral>
+    pub name: String,
+    pub arg_type: Box<LocTypeLiteral>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +154,8 @@ pub enum BinOp {
     Mul,
     Div,
 
+    Mod,
+
     ShiftLeft,
     ShiftRightArith,
 
@@ -167,7 +171,7 @@ pub enum UnOp {
 
 #[derive(Debug, Clone)]
 pub struct CallArgument {
-    pub expression: Box<LocExpr>,
+    pub expr: Box<LocExpr>,
     pub loc: Loc 
 }
 
@@ -175,7 +179,7 @@ pub struct CallArgument {
 #[derive(Debug, Clone)]
 pub struct CallKeywordArgument {
     pub name: String,
-    pub expression: Box<LocExpr>,
+    pub expr: Box<LocExpr>,
     pub loc: Loc 
 }
 
@@ -200,7 +204,7 @@ pub enum Expr {
         left: Box<LocExpr>,
         right: Box<LocExpr>,
     },
-    Unop {
+    UnOp {
         op: UnOp,
         expr: Box<LocExpr>
     },
@@ -228,7 +232,8 @@ pub enum Expr {
 #[derive(Debug, Clone)]
 pub struct LocExpr {
     pub expr: Expr,
-    pub loc: Loc
+    pub loc: Loc,
+    pub typ: Type
 }
 
 
@@ -236,28 +241,28 @@ pub struct LocExpr {
 pub enum Stmt {
     Assignment {
         target: LocExpr,
-        expression: LocExpr,
+        expr: LocExpr,
     },
     FunctionCall {
-        expression: LocExpr
+        expr: LocExpr
     },
     Return {
-        expression: LocExpr
+        expr: LocExpr
     },
     IfElse {
-        condition: LocExpr,
+        cond: LocExpr,
         if_body: Box<LocStmt>,
         else_body: Box<LocStmt> 
     },
     While {
-        condition: LocExpr,
+        cond: LocExpr,
         body: Box<LocStmt>
     },
     Block {
         statements: Vec<LocStmt> 
     },
     Expression {
-        expression: LocExpr
+        expr: LocExpr
     }
 }
 
@@ -271,14 +276,14 @@ pub struct LocStmt {
 #[derive(Debug, Clone)]
 pub struct Argument {
     pub name: String,
-    pub arg_type: LocTypeLiteral,
+    pub arg_type: Option<LocTypeLiteral>,
     pub loc: Loc 
 }
 
 #[derive(Debug, Clone)]
 pub struct KeywordArgument {
     pub name: String,
-    pub expression: LocExpr,
+    pub expr: LocExpr,
     pub loc: Loc
 }
 
@@ -289,7 +294,7 @@ pub struct FunctionPrototype {
     pub variadic_argument: Option<Argument>,
     pub keyword_arguments: Vec<KeywordArgument>,
     pub keyword_variadic_argument: Option<Argument>,
-    pub return_type: LocTypeLiteral
+    pub return_type: Option<LocTypeLiteral>
 }
 
 
