@@ -94,10 +94,45 @@ Statements: Vec<parse_ast::LocStmt> = {
         c_stmts.extend(stmts);
         c_stmts
     },
+    <start: @L> "#{" <b:Body> "}" ";" <end: @R> <stmts:Statements> => {
+        let mut b = vec![b];
+        b.extend(stmts);
+        b
+    },
     <stmt:Statement> => vec![stmt],
     => vec![]
 };
 
+ExprStatements: Vec<parse_ast::LocStmt> = {
+    <stmt:Statement> ";" <stmts:ExprStatements> => {
+        let mut stmts = stmts;
+        stmts.insert(0, stmt);
+        stmts
+    },
+    <c_stmts:ControlFlow> <stmts:ExprStatements> => {
+        let mut c_stmts = c_stmts;
+        c_stmts.extend(stmts);
+        c_stmts
+    },
+    <start: @L> "#{" <b:Body> "}" ";" <end: @R> <stmts:ExprStatements> => {
+        let mut b = vec![b];
+        b.extend(stmts);
+        b
+    },
+    <finalexpr:FinalExpr> => vec![finalexpr]
+};
+
+FinalExpr: parse_ast::LocStmt = {
+    <e:Expression> => {
+        let loc = e.loc.clone();
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Expression {
+                expr: e
+            },
+            loc: loc
+        }
+    }
+}
 
 ControlFlow: Vec<parse_ast::LocStmt> = {
     <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:Body> "}" <end2: @R>  => {
@@ -161,7 +196,7 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
 
 
 Statement: parse_ast::LocStmt = {
-    <start: @L> <t:LHSExpression> "=" <e:Expression> <end: @R> => {
+    <start: @L> <t:Expression> "=" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Assignment {
                 target: t,
@@ -169,33 +204,6 @@ Statement: parse_ast::LocStmt = {
             },
             loc: start..end
         }
-    },
-    <start: @L> <f:Ident> <end_ident: @R> "(" <args:CallArguments> ")" <end: @R> => parse_ast::LocStmt {
-        stmt: parse_ast::Stmt::FunctionCall {
-            expr: parse_ast::LocExpr {
-                expr: parse_ast::Expr::FunctionCall {
-                    function: Box::new(parse_ast::LocExpr {
-                        expr: parse_ast::Expr::Variable(f),
-                        loc: start..end_ident
-                    }),
-                    arguments: args
-                },
-                loc: start..end
-            }
-        },
-        loc: start..end
-    },
-    <start: @L> "(" <f:Expression> ")" "(" <args:CallArguments> ")" <end: @R> => parse_ast::LocStmt {
-        stmt: parse_ast::Stmt::FunctionCall {
-            expr: parse_ast::LocExpr {
-                expr: parse_ast::Expr::FunctionCall {
-                    function: Box::new(f),
-                    arguments: args
-                },
-                loc: start..end
-            }
-        },
-        loc: start..end
     },
     <start: @L> "return" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
@@ -206,7 +214,7 @@ Statement: parse_ast::LocStmt = {
         }
     },
 
-    <start: @L> <t:LHSExpression> "+=" <e:Expression> <end: @R> => {
+    <start: @L> <t:Expression> "+=" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Assignment {
                 target: t.clone(),
@@ -222,7 +230,7 @@ Statement: parse_ast::LocStmt = {
             loc: start..end
         }
     },
-    <start: @L> <t:LHSExpression> "-=" <e:Expression> <end: @R> => {
+    <start: @L> <t:Expression> "-=" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Assignment {
                 target: t.clone(),
@@ -238,7 +246,7 @@ Statement: parse_ast::LocStmt = {
             loc: start..end
         }
     },
-    <start: @L> <t:LHSExpression> "*=" <e:Expression> <end: @R> => {
+    <start: @L> <t:Expression> "*=" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Assignment {
                 target: t.clone(),
@@ -254,7 +262,7 @@ Statement: parse_ast::LocStmt = {
             loc: start..end
         }
     },
-    <start: @L> <t:LHSExpression> "/=" <e:Expression> <end: @R> => {
+    <start: @L> <t:Expression> "/=" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Assignment {
                 target: t.clone(),
@@ -271,7 +279,7 @@ Statement: parse_ast::LocStmt = {
         }
     },
 
-    <start: @L> <t:LHSExpression> "++" <end: @R> => {
+    <start: @L> <t:Expression> "++" <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Assignment {
                 target: t.clone(),
@@ -290,7 +298,7 @@ Statement: parse_ast::LocStmt = {
             loc: start..end
         }
     },
-    <start: @L> <t:LHSExpression> "--" <end: @R> => {
+    <start: @L> <t:Expression> "--" <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Assignment {
                 target: t.clone(),
@@ -308,19 +316,6 @@ Statement: parse_ast::LocStmt = {
             },
             loc: start..end
         }
-    }
-};
-
-LHSExpression: parse_ast::LocExpr = {
-    <start: @L> <id: Ident> <end: @R> => parse_ast::LocExpr {
-        expr: parse_ast::Expr::Variable(id),
-        loc: start..end
-    },
-    <start: @L> <indexed:LHSExpression> "[" <indexer: IndexExpression> "]" <end: @R> => parse_ast::LocExpr {
-        expr: parse_ast::Expr::Indexing {
-            indexed: Box::new(indexed), indexer: Box::new(indexer)
-        },
-        loc: start..end
     }
 };
 
@@ -359,6 +354,14 @@ CallArgument: parse_ast::LocCallArgument = {
 Expression: parse_ast::LocExpr = {
     #[precedence(level="0")]
     Term,
+    <start: @L> "#{" <stmts:ExprStatements> "}" <end: @R> => {
+        parse_ast::LocExpr {
+            expr: parse_ast::Expr::Block {
+                statements: stmts
+            },
+            loc: start..end
+        }
+    },
     #[precedence(level="1")] #[assoc(side="left")]
     <start: @L> "(" <e:Expression> "," <elts: CommaSeperatedExpressions> ")" <end: @R> => {
         let mut elts = elts;
@@ -529,6 +532,10 @@ Term: parse_ast::LocExpr = {
         expr: parse_ast::Expr::Bool(false),
         loc: start..end
     },
+    <start: @L> <i:Ident> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Variable(i),
+        loc: start..end
+    },
     <start: @L> <n:Num> <end: @R> => parse_ast::LocExpr {
         expr: parse_ast::Expr::Int(n),
         loc: start..end
@@ -537,11 +544,7 @@ Term: parse_ast::LocExpr = {
         expr: parse_ast::Expr::Str(s),
         loc: start..end
     },
-    <start: @L> <id: Ident> <end: @R> => parse_ast::LocExpr {
-        expr: parse_ast::Expr::Variable(id),
-        loc: start..end
-    },
-    "(" <e: Expression> ")" => e
+    "(" <e: Expression> ")" => e,
 }
 
 
@@ -598,6 +601,8 @@ match {
     ")",
     "[",
     "]",
+    "#{",
+    "get",
     "{",
     "}",
     ",",

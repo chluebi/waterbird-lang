@@ -1,10 +1,21 @@
-factorial(n) {
-    if n == 1 {
-        return 1;
+test() {
+    i = 0;
+    if i == 0 {
+        i = 100;
+        j = 1;
     }
-    return n * factorial(n-1);
+
+    #{
+        i += 1;
+    };
+
+    return #{
+        j = 2;
+
+        i * j
+    } * #{5};
 }
 
 main() {
-    return [factorial(1), factorial(2), factorial(3)][2];
+    return test();
 }
