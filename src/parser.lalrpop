@@ -99,7 +99,8 @@ ExprStatements: Vec<parse_ast::LocStmt> = {
         let mut v = vec![block];
         v.extend(stmts);
         v
-    }
+    },
+    => vec![]
 };
 
 ExprBlock: parse_ast::LocExpr = {
@@ -115,6 +116,8 @@ ExprBlock: parse_ast::LocExpr = {
 
 Statements: Vec<parse_ast::LocStmt> = {
     <stmt:Statement> ";" => vec![stmt],
+    <cf:ControlFlow> => cf,
+    <block:BlockStatement> => vec![block],
     <stmt:Statement> => vec![stmt],
     <finalexpr:FinalExpression> => vec![finalexpr],
     <stmt:Statement> ";" <stmts:Statements> => {

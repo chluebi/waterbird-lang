@@ -276,15 +276,17 @@ pub struct InterpreterErrorMessage {
     pub loc: Option<ast::Loc>
 }
 
-pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &ast::Program) -> Result<Value, InterpreterErrorMessage> {
+// we return Ok(Ok(Value)) if we just evaluate
+// we short-circuit with Ok(Err(Value)) as this means we have a direct return value
+pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &ast::Program) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
     
     match expression.expr {
         ast::Expr::Variable(ref v) => {
             match state.stack.get_value(&v) {
-                Some(value) => Ok(value),
+                Some(value) => Ok(Ok(value)),
                 _ => {
                     match program.functions.get(v) {
-                        Some(_) => Ok(Value::FunctionPtr(v.clone())),
+                        Some(_) => Ok(Ok(Value::FunctionPtr(v.clone()))),
                         _ => Err(InterpreterErrorMessage {
                             error: InterpreterError::VariableNotFound(v.clone()),
                             loc: Some(expression.loc.clone())
@@ -293,70 +295,102 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 }
             }
         },
-        ast::Expr::Int(ref i) => Ok(Value::Int(*i)),
-        ast::Expr::Bool(ref b) => Ok(Value::Bool(*b)),
+        ast::Expr::Int(ref i) => Ok(Ok(Value::Int(*i))),
+        ast::Expr::Bool(ref b) => Ok(Ok(Value::Bool(*b))),
         ast::Expr::Str(ref s) => {
             let ptr = state.heap.intern_string(String::from(s));
-            Ok(Value::Str(ptr))
+            Ok(Ok(Value::Str(ptr)))
         },
         ast::Expr::Tuple(ref values) => {
-            let values: Result<Vec<Value>, InterpreterErrorMessage>
+            let values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
                 = values.into_iter().map(|arg| eval_expression(state, &arg, program)).collect();
-            let values: Vec<Value> = values?;
-            Ok(Value::Tuple(values))
+            let values: Result<Vec<Value>, Value> = values?;
+            match values {
+                Ok(values) => Ok(Ok(Value::Tuple(values))),
+                Err(value) => Ok(Err(value))
+            }
         },
         ast::Expr::List(ref values) => {
-            let values: Result<Vec<Value>, InterpreterErrorMessage>
+            let values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
                 = values.into_iter().map(|arg| eval_expression(state, &arg, program)).collect();
-            let values: Vec<Value> = values?;
-            let ptr = state.heap.alloc(HeapObject::List(values));
-            Ok(Value::List(ptr))
+            let values: Result<Vec<Value>, Value> = values?;
+            match values {
+                Ok(values) => {
+                    let ptr = state.heap.alloc(HeapObject::List(values));
+                    Ok(Ok(Value::List(ptr)))
+                },
+                Err(value) => Ok(Err(value))
+            }
         },
         ast::Expr::Dictionary(ref keys_values) => {
-            let keys_values: Result<Vec<((Value, ast::Loc),(Value, ast::Loc))>, InterpreterErrorMessage>
-                = keys_values.into_iter().map(|(key,value)| {
-                    Ok(((eval_expression(state, &key, program)?, key.loc.clone()),
-                    (eval_expression(state, &value, program)?, value.loc.clone())))
+            let results: Result<Result<Vec<((Value, ast::Loc), (Value, ast::Loc))>, Value>, InterpreterErrorMessage> =
+                keys_values.into_iter().map(|(key_expr, value_expr)| {
+                    let key_result: Result<Value, Value> = eval_expression(state, key_expr, program)?;
+                    let key_value = match key_result {
+                        Ok(v) => v,
+                        Err(v) => return Ok(Err(v)),
+                    };
+                    let value_result: Result<Value, Value> = eval_expression(state, value_expr, program)?;
+                    let value_value = match value_result {
+                        Ok(v) => v,
+                        Err(v) => return Ok(Err(v)),
+                    };
+                    Ok(Ok(((key_value, key_expr.loc.clone()),
+                           (value_value, value_expr.loc.clone()))))
+
                 }).collect();
-            let keys_values: Vec<((Value, ast::Loc),(Value, ast::Loc))> = keys_values?;
+            let keys_values: Result<Vec<((Value, ast::Loc), (Value, ast::Loc))>, Value> = results?;
 
-            for ((key, key_loc), (_, _)) in keys_values.iter() {
-                if !key.hashable() {
-                    return Err(InterpreterErrorMessage {
-                        error: InterpreterError::UnhashableKey,
-                        loc: Some(key_loc.clone())
-                    })
-                }
+            match keys_values {
+                Ok(keys_values) => {
+                    for ((key, key_loc), (_, _)) in keys_values.iter() {
+                        if !key.hashable() {
+                            return Err(InterpreterErrorMessage {
+                                error: InterpreterError::UnhashableKey,
+                                loc: Some(key_loc.clone())
+                            })
+                        }
+                    }
+
+                    let mut map = HashMap::new();
+                    for ((key, _), (value, _)) in keys_values {
+                        map.insert(key, value);
+                    }
+
+                    let ptr = state.heap.alloc(HeapObject::Dictionary(map));
+                    Ok(Ok(Value::Dictionary(ptr)))
+                },
+                Err(value) => Ok(Err(value))
             }
 
-            let mut map = HashMap::new();
-            for ((key, _), (value, _)) in keys_values {
-                map.insert(key, value);
-            }
-
-            let ptr = state.heap.alloc(HeapObject::Dictionary(map));
-            Ok(Value::Dictionary(ptr))
+            
         },
         ast::Expr::BinOp { ref op, ref left, ref right } => {
-            let left_value = eval_expression(state, &left, program)?;
-            let right_value = eval_expression(state, &right, program)?;
+            let left_value = match eval_expression(state, &left, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(Err(value))
+            };
+            let right_value = match eval_expression(state, &right, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(Err(value))
+            };
 
             match (left_value.clone(), right_value.clone()) {
                 (Value::Int(left_value), Value::Int(right_value)) => {
                     match op {
-                        ast::BinOp::Eq => return Ok(Value::Bool(left_value == right_value)),
-                        ast::BinOp::Neq => return Ok(Value::Bool(left_value != right_value)),
-                        ast::BinOp::Leq => return Ok(Value::Bool(left_value <= right_value)),
-                        ast::BinOp::Geq => return Ok(Value::Bool(left_value >= right_value)),
-                        ast::BinOp::Lt => return Ok(Value::Bool(left_value < right_value)),
-                        ast::BinOp::Gt => return Ok(Value::Bool(left_value > right_value)),
-                        ast::BinOp::Add => return Ok(Value::Int(left_value + right_value)),
-                        ast::BinOp::Sub => return Ok(Value::Int(left_value - right_value)),
-                        ast::BinOp::Mul => return Ok(Value::Int(left_value * right_value)),
-                        ast::BinOp::Div => return Ok(Value::Int(left_value / right_value)),
-                        ast::BinOp::Mod => return Ok(Value::Int(left_value % right_value)),
-                        ast::BinOp::ShiftLeft => return Ok(Value::Int(left_value << right_value)),
-                        ast::BinOp::ShiftRightArith => return Ok(Value::Int(left_value >> right_value)),
+                        ast::BinOp::Eq => return Ok(Ok(Value::Bool(left_value == right_value))),
+                        ast::BinOp::Neq => return Ok(Ok(Value::Bool(left_value != right_value))),
+                        ast::BinOp::Leq => return Ok(Ok(Value::Bool(left_value <= right_value))),
+                        ast::BinOp::Geq => return Ok(Ok(Value::Bool(left_value >= right_value))),
+                        ast::BinOp::Lt => return Ok(Ok(Value::Bool(left_value < right_value))),
+                        ast::BinOp::Gt => return Ok(Ok(Value::Bool(left_value > right_value))),
+                        ast::BinOp::Add => return Ok(Ok(Value::Int(left_value + right_value))),
+                        ast::BinOp::Sub => return Ok(Ok(Value::Int(left_value - right_value))),
+                        ast::BinOp::Mul => return Ok(Ok(Value::Int(left_value * right_value))),
+                        ast::BinOp::Div => return Ok(Ok(Value::Int(left_value / right_value))),
+                        ast::BinOp::Mod => return Ok(Ok(Value::Int(left_value % right_value))),
+                        ast::BinOp::ShiftLeft => return Ok(Ok(Value::Int(left_value << right_value))),
+                        ast::BinOp::ShiftRightArith => return Ok(Ok(Value::Int(left_value >> right_value))),
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "int", right: "int" },
                             loc: Some(expression.loc.clone())
@@ -366,10 +400,10 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
                 (Value::Bool(left_value), Value::Bool(right_value)) => {
                     match op {
-                        ast::BinOp::Eq => return Ok(Value::Bool(left_value == right_value)),
-                        ast::BinOp::Neq => return Ok(Value::Bool(left_value != right_value)),
-                        ast::BinOp::And => return Ok(Value::Bool(left_value && right_value)),
-                        ast::BinOp::Or => return Ok(Value::Bool(left_value || right_value)),
+                        ast::BinOp::Eq => return Ok(Ok(Value::Bool(left_value == right_value))),
+                        ast::BinOp::Neq => return Ok(Ok(Value::Bool(left_value != right_value))),
+                        ast::BinOp::And => return Ok(Ok(Value::Bool(left_value && right_value))),
+                        ast::BinOp::Or => return Ok(Ok(Value::Bool(left_value || right_value))),
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "bool", right: "bool" },
                             loc: Some(expression.loc.clone())
@@ -399,7 +433,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             let mut new_list = left_value.clone();
                             new_list.extend(right_value.clone());
                             let ptr = state.heap.alloc(HeapObject::List(new_list));
-                            Ok(Value::List(ptr))
+                            Ok(Ok(Value::List(ptr)))
                         },
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "list", right: "list" },
@@ -419,12 +453,15 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             }
         },
         ast::Expr::UnOp { ref op, ref expr } => {
-            let value = eval_expression(state, &expr, program)?;
+            let value = match eval_expression(state, &expr, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(Err(value))
+            };
 
             match value.clone() {
                 Value::Int(value) => {
                     match op {
-                        ast::UnOp::Neg => return Ok(Value::Int(-value)),
+                        ast::UnOp::Neg => return Ok(Ok(Value::Int(-value))),
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesUn { op: op.clone(), operand: "int" },
                             loc: Some(expression.loc.clone())
@@ -434,7 +471,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
                 Value::Bool(value) => {
                     match op {
-                        ast::UnOp::Not => return Ok(Value::Bool(!value)),
+                        ast::UnOp::Not => return Ok(Ok(Value::Bool(!value))),
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesUn { op: op.clone(), operand: "bool" },
                             loc: Some(expression.loc.clone())
@@ -455,7 +492,10 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             ref keyword_arguments,
             ref keyword_variadic_argument 
         } => {
-            let func_value = eval_expression(state, function, program)?;
+            let func_value = match eval_expression(state, function, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(Err(value))
+            };
 
             match func_value {
                 Value::FunctionPtr(ptr) => 
@@ -480,10 +520,14 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         })
                     };
 
-                    let argument_values: Result<Vec<Value>, InterpreterErrorMessage>
+                    let argument_values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
                         = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expr, program)).collect();
 
-                    let argument_values: Vec<Value> = argument_values?;
+
+                    let argument_values: Vec<Value> = match argument_values? {
+                        Ok(values) => values,
+                        Err(value) => return Ok(Err(value))
+                    };
 
                     if argument_values.len() < arguments.len() {
                         let pos = argument_values.len();
@@ -514,7 +558,12 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
                     let _ = new_values.into_iter().for_each(|(n,v)| {state.stack.update_variable(&n, v);});
                     
-                    let value: Result<Value, InterpreterErrorMessage> = eval_expression(state, &expr, program);
+                    // we treat lambdas as their own functions this effectively means if they get a return statement in their expression
+                    // we just return from the lambda
+                    let value: Result<Result<Value, Value>, InterpreterErrorMessage> = match eval_expression(state, &expr, program) {
+                        Ok(Ok(value)) | Ok(Err(value)) => Ok(Ok(value)),
+                        Err(value) => return Err(value)
+                    };
 
                     state.stack.drop_function_context();
 
@@ -530,8 +579,14 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             }
         },
         ast::Expr::Indexing { ref indexed, ref indexer } => {
-            let original_indexed_value = eval_expression(state, &indexed, program)?;
-            let original_indexer_value = eval_expression(state, &indexer, program)?;
+            let original_indexed_value = match eval_expression(state, &indexed, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(Err(value))
+            };
+            let original_indexer_value = match eval_expression(state, &indexer, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(Err(value))
+            };
 
             if let Value::Dictionary(ptr) = original_indexed_value {
                 match state.heap.get(ptr) {
@@ -543,7 +598,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             })
                         }
                         match dict.get(&original_indexer_value) {
-                            Some(value) => return Ok(value.clone()),
+                            Some(value) => return Ok(Ok(value.clone())),
                             _ => return Err(InterpreterErrorMessage {
                                 error: InterpreterError::KeyNotFound,
                                 loc: Some(indexer.loc.clone())
@@ -593,18 +648,18 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             let char_val = str.chars().nth(index).unwrap(); 
                             let char_str = char_val.to_string();
                             let new_ptr = state.heap.alloc(HeapObject::Str(char_str));
-                            Ok(Value::Str(new_ptr))
+                            Ok(Ok(Value::Str(new_ptr)))
                         },
                         _ => unreachable!() 
                     }
                 },
                 Value::Tuple(values) => {
-                    Ok(values[index].clone())
+                    Ok(Ok(values[index].clone()))
                 },
                 Value::List(ptr) => {
                      match state.heap.get(ptr) {
                         Some(HeapObject::List(l)) => {
-                            Ok(l[index].clone())
+                            Ok(Ok(l[index].clone()))
                         },
                         _ => unreachable!()
                      }
@@ -612,10 +667,10 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 _ => unreachable!()
             }
         },
-        ast::Expr::FunctionPtr(ref s) => {Ok(Value::FunctionPtr(s.clone()))},
+        ast::Expr::FunctionPtr(ref s) => {Ok(Ok(Value::FunctionPtr(s.clone())))},
         ast::Expr::Lambda { ref arguments, ref expr } => {
             let ptr = state.heap.alloc(HeapObject::Lambda {arguments: arguments.clone(), expr: expr.clone()});
-            Ok(Value::Lambda(ptr))
+            Ok(Ok(Value::Lambda(ptr)))
         },
         ast::Expr::Block { ref statements } => {
             match statements.as_slice() {
@@ -629,8 +684,8 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             Err(e) => {
                                 return Err(e)
                             },
-                            Ok(Some(v)) => {
-                                return Ok(v)
+                            Ok(StatementReturn::Return(v)) => {
+                                return Ok(Err(v)) // we *return* a value
                             },
                             Ok(_) => {}
                         };
@@ -704,7 +759,7 @@ fn call_function(
     keyword_arguments: &Vec<ast::CallKeywordArgument>,
     keyword_variadic_argument: &Option<ast::CallArgument>,
     program: &ast::Program
-) -> Result<Value, InterpreterErrorMessage> {
+) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
     let function = match program.functions.get(function_name) {
         Some(f) => f,
         _ => return Err(InterpreterErrorMessage {
@@ -713,14 +768,20 @@ fn call_function(
             })
     };
 
-    let argument_values: Result<Vec<Value>, InterpreterErrorMessage>
+    let argument_values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
         = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expr, program)).collect();
 
-    let mut argument_values: Vec<Value> = argument_values?;
+    let mut argument_values: Vec<Value> = match argument_values? {
+        Ok(values) => values,
+        Err(value) => return Ok(Err(value))
+    };
 
     match &variadic_argument {
         Some(arg) => {
-            let value = eval_expression(state, &arg.expr, program)?;
+            let value = match eval_expression(state, &arg.expr, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(Err(value))
+            };
             let extra_args: Vec<Value> = match value.clone() {
                 Value::Tuple(elements) => elements,
                 Value::List(ptr) => {
@@ -745,17 +806,27 @@ fn call_function(
         _ => ()
     }
 
-    let keyword_values: Result<HashMap<String, (Option<&ast::CallKeywordArgument>, Value)>, InterpreterErrorMessage> = keyword_arguments.iter()
+    let keyword_values: Result<Result<HashMap<String, (Option<&ast::CallKeywordArgument>, Value)>, Value>, InterpreterErrorMessage> = keyword_arguments.iter()
         .map(|arg| {
-            eval_expression(state, &arg.expr, program).map(|value| (arg.name.clone(), (Some(arg), value)))
+            match eval_expression(state, &arg.expr, program) {
+                Ok(Ok(value)) => Ok(Ok((arg.name.clone(), (Some(arg), value)))),
+                Ok(Err(value)) => Ok(Err(value)),
+                Err(e) => Err(e)
+            }
         })
         .collect();
 
-    let mut keyword_values: HashMap<String, (Option<&ast::CallKeywordArgument>, Value)> = keyword_values?;
+    let mut keyword_values: HashMap<String, (Option<&ast::CallKeywordArgument>, Value)> = match keyword_values? {
+        Ok(values) => values,
+        Err(value) => return Ok(Err(value))
+    };
 
     match keyword_variadic_argument {
         Some(arg) => {
-            let value = eval_expression(state, &arg.expr, program)?;
+            let value = match eval_expression(state, &arg.expr, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(Err(value))
+            };
             match value.clone() {
                 Value::Dictionary(ptr) => {
                     let index_ref = match state.heap.get(ptr) {
@@ -839,7 +910,11 @@ fn call_function(
     let mut keyword_variadic_arguments: HashMap<Value, Value> = HashMap::new();
 
     for keyword_arg in function.contract.keyword_arguments.clone() {
-        new_values.insert(keyword_arg.name, eval_expression(state, &keyword_arg.expr, program)?);
+        let value = match eval_expression(state, &keyword_arg.expr, program)? {
+            Ok(value) => value,
+            Err(value) => return Ok(Err(value))
+        }; 
+        new_values.insert(keyword_arg.name, value);
     }
 
     for (key, (arg, value)) in keyword_values {
@@ -892,8 +967,8 @@ fn call_function(
     state.stack.drop_function_context();
 
     match value {
-        Ok(Some(v)) => {
-            Ok(v)
+        Ok(StatementReturn::Return(v)) => {
+            Ok(Ok(v))
         },
         Ok(_) => {
             return Err(InterpreterErrorMessage {
@@ -906,20 +981,48 @@ fn call_function(
 }
 
 
-pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program) -> Result<Option<Value>, InterpreterErrorMessage> {
+enum StatementReturn {
+    Return(Value),
+    Eval(Value),
+    None
+}
+
+impl StatementReturn {
+
+    pub fn unwrap(self: Self) -> Value {
+        match self {
+            Self::Return(v) => v,
+            _ => panic!("unwrap failed")
+        }
+    }
+}
+
+pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program) -> Result<StatementReturn, InterpreterErrorMessage> {
     match &stmt.stmt {
         ast::Stmt::Assignment { target, expr: expression } => {
             match &target.expr {
                 ast::Expr::Variable(v) => {
-                    let value = eval_expression(state, expression, program)?;
+                    let value = match eval_expression(state, expression, program)? {
+                        Ok(value) => value,
+                        Err(value) => return Ok(StatementReturn::Return(value))
+                    };
                     state.stack.update_variable(&v,value);
-                    return Ok(None)
+                    return Ok(StatementReturn::None)
                 },
                 ast::Expr::Indexing { indexed, indexer } => {
-                    let original_indexed_value = eval_expression(state, &indexed, program)?;
-                    let original_indexer_value = eval_expression(state, &indexer, program)?;
+                    let original_indexed_value = match eval_expression(state, &indexed, program)? {
+                        Ok(value) => value,
+                        Err(value) => return Ok(StatementReturn::Return(value))
+                    };
+                    let original_indexer_value = match eval_expression(state, &indexer, program)? {
+                        Ok(value) => value,
+                        Err(value) => return Ok(StatementReturn::Return(value))
+                    };
 
-                    let value = eval_expression(state, expression, program)?;
+                    let value = match eval_expression(state, expression, program)? {
+                        Ok(value) => value,
+                        Err(value) => return Ok(StatementReturn::Return(value))
+                    };
 
                     if let Value::Dictionary(ptr) = original_indexed_value {
                         if !original_indexer_value.hashable() {
@@ -940,7 +1043,7 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                             }
                         }
 
-                        return Ok(None);
+                        return Ok(StatementReturn::None);
                     }
 
                     let mut indexer_value = match original_indexer_value.clone() {
@@ -995,7 +1098,10 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                     }
                 },
                 ast::Expr::Tuple(elements) | ast::Expr::List(elements) => {
-                    let value = eval_expression(state, expression, program)?;
+                    let value = match eval_expression(state, expression, program)? {
+                        Ok(value) => value,
+                        Err(value) => return Ok(StatementReturn::Return(value))
+                    };
                     let assignment_list: Vec<(String, Value)> = unpack_elements(state, elements, value, &expression.loc)?;
                     assignment_list.into_iter().for_each(|(var, value)| {
                         state.stack.update_variable(&var, value);
@@ -1009,11 +1115,17 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
         },
         ast::Stmt::FunctionCall { expr: expression } => {eval_expression(state, expression, program)?;},
         ast::Stmt::Return { expr: expression } => {
-            let value = eval_expression(state, expression, program)?;
-            return Ok(Some(value));
+            let value = match eval_expression(state, expression, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(StatementReturn::Return(value))
+            };
+            return Ok(StatementReturn::Return(value));
         },
         ast::Stmt::IfElse { cond: condition, if_body, else_body } => {
-            let eval_condition = eval_expression(state, &condition, program)?;
+            let eval_condition = match eval_expression(state, &condition, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(StatementReturn::Return(value))
+            };
 
             match eval_condition {
                 Value::Bool(b) => {
@@ -1034,7 +1146,10 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
             };
         },
         ast::Stmt::While { cond: condition, body } => {
-            let eval_condition = eval_expression(state, condition, program)?;
+            let eval_condition = match eval_expression(state, condition, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(StatementReturn::Return(value))
+            };
 
             let mut cond = match eval_condition {
                 Value::Bool(b) => b,
@@ -1051,11 +1166,15 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
 
             while cond  {
                 let ret = run_statement(state, &body, program)?;
-                if let Some(v) = ret {
-                    return Ok(Some(v));
+
+                if let StatementReturn::Return(v) = ret {
+                    return Ok(StatementReturn::Return(v));
                 }
 
-                let eval_condition = eval_expression(state, condition, program)?;
+                let eval_condition = match eval_expression(state, condition, program)? {
+                    Ok(value) => value,
+                    Err(value) => return Ok(StatementReturn::Return(value))
+                };
                 cond = match eval_condition {
                     Value::Bool(b) => b,
                     x => {
@@ -1079,8 +1198,8 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                     Err(e) => {
                         return Err(e)
                     },
-                    Ok(Some(v)) => {
-                        return Ok(Some(v))
+                    Ok(StatementReturn::Return(v)) => {
+                        return Ok(StatementReturn::Return(v))
                     },
                     Ok(_) => {}
                 };
@@ -1090,11 +1209,15 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
         },
         ast::Stmt::Expression { expr: expression } => {
             // Behave like return statement
-            return Ok(Some(eval_expression(state, expression, program)?));
+            let value = match eval_expression(state, expression, program)?{
+                Ok(value) => value,
+                Err(value) => return Ok(StatementReturn::Return(value))
+            };
+            return Ok(StatementReturn::Return(value));
         }
     }
 
-    return Ok(None);
+    return Ok(StatementReturn::None);
 }
 
 
