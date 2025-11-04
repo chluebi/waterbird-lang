@@ -2,8 +2,6 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::str;
 
-use lalrpop_util::ParseError;
-
 use crate::parser;
 use crate::parse_ast;
 use crate::interpreter;
@@ -110,9 +108,9 @@ pub fn run(path: String) -> () {
             match e.loc.clone() {
                 Some(range) => {
                     let original_code_string = get_error_snippet(&program_text, range.start, range.end);
-                    println!("Program Failed: {:?}\n{}", e, original_code_string)
+                    println!("Program Failed: {}\n{}", e.error, original_code_string)
                 },
-                _ => println!("Program Failed {:?}:\n[Unknown Location]", e)
+                _ => println!("Program Failed {}:\n[Unknown Location]", e.error)
             }
         }
     };

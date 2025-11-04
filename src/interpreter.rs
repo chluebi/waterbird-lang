@@ -1,5 +1,6 @@
 use std::collections::{HashMap};
 use std::hash::{Hash, Hasher};
+use std::fmt;
 use slab::Slab;
 
 use crate::{ast};
@@ -43,6 +44,19 @@ impl Value {
             Value::Str(_) => true,
             Value::Tuple(values) => values.iter().all(Value::hashable),
             _ => false
+        }
+    }
+
+    pub fn get_type_name(&self) -> &'static str {
+        match self {
+            Value::Int(_) => "int",
+            Value::Bool(_) => "bool",
+            Value::Str(_) => "str",
+            Value::Tuple(_) => "tuple",
+            Value::List(_) => "list",
+            Value::Dictionary(_) => "dict",
+            Value::Lambda(_) => "lambda",
+            Value::FunctionPtr(_) => "function",
         }
     }
 
@@ -195,10 +209,66 @@ impl State {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InterpreterError {
-    Panic(String)
+    VariableNotFound(String),
+    FunctionNotFound(String),
+    KeyNotFound,
+    IndexOutOfBounds,
+    UnhashableKey,
+    // For binary operators. e.g., "Cannot apply '{op:?}' to types '{left}' and '{right}'"
+    InvalidOperandTypesBin {
+        op: ast::BinOp,
+        left: &'static str,
+        right: &'static str,
+    },
+    // For unary operators. e.g., "Cannot apply '{op:?}' to type '{operand}'"
+    InvalidOperandTypesUn {
+        op: ast::UnOp,
+        operand: &'static str,
+    },
+    // For type mismatches, e.g., "Expected {expected}, got {got}"
+    TypeError {
+        expected: String,
+        got: &'static str,
+    },
+    ArgumentError(String), // For missing/extra args
+    ImmutabilityError(String), // For trying to assign to tuple/string
+    InvalidAssignmentTarget,
+    UnpackError(String), // For tuple/list unpacking
+    MissingReturnValue,
+    BlockError(String), // For "Expected Expression at end of block"
+    InternalError(String), // For "Expected X Heap Object" - these are interpreter bugs
 }
+
+impl fmt::Display for InterpreterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InterpreterError::VariableNotFound(name) => write!(f, "Variable not found: '{}'", name),
+            InterpreterError::FunctionNotFound(name) => write!(f, "Function not found: '{}'", name),
+            InterpreterError::KeyNotFound => write!(f, "Key not found in dictionary"),
+            InterpreterError::IndexOutOfBounds => write!(f, "Index out of bounds"),
+            InterpreterError::UnhashableKey => write!(f, "Unhashable key type"),
+            InterpreterError::InvalidOperandTypesBin { op, left, right } => {
+                write!(f, "Cannot apply operator '{:?}' to types '{}' and '{}'", op, left, right)
+            },
+            InterpreterError::InvalidOperandTypesUn { op, operand } => {
+                write!(f, "Cannot apply operator '{:?}' to type '{}'", op, operand)
+            },
+            InterpreterError::TypeError { expected, got } => {
+                write!(f, "Type error: expected {}, got {}", expected, got)
+            },
+            InterpreterError::ArgumentError(msg) => write!(f, "Argument error: {}", msg),
+            InterpreterError::ImmutabilityError(msg) => write!(f, "Immutability error: {}", msg),
+            InterpreterError::InvalidAssignmentTarget => write!(f, "Invalid assignment target"),
+            InterpreterError::UnpackError(msg) => write!(f, "Unpack error: {}", msg),
+            InterpreterError::MissingReturnValue => write!(f, "Function did not return a value"),
+            InterpreterError::BlockError(msg) => write!(f, "Block error: {}", msg),
+            InterpreterError::InternalError(msg) => write!(f, "Interpreter internal error: {}. This is likely a bug.", msg),
+        }
+    }
+}
+
 
 #[derive(Debug)]
 pub struct InterpreterErrorMessage {
@@ -216,7 +286,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     match program.functions.get(v) {
                         Some(_) => Ok(Value::FunctionPtr(v.clone())),
                         _ => Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Variable not found ") + v),
+                            error: InterpreterError::VariableNotFound(v.clone()),
                             loc: Some(expression.loc.clone())
                         })
                     }
@@ -253,7 +323,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             for ((key, key_loc), (_, _)) in keys_values.iter() {
                 if !key.hashable() {
                     return Err(InterpreterErrorMessage {
-                        error: InterpreterError::Panic(String::from("Unhashable key")),
+                        error: InterpreterError::UnhashableKey,
                         loc: Some(key_loc.clone())
                     })
                 }
@@ -271,7 +341,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             let left_value = eval_expression(state, &left, program)?;
             let right_value = eval_expression(state, &right, program)?;
 
-            match (left_value, right_value) {
+            match (left_value.clone(), right_value.clone()) {
                 (Value::Int(left_value), Value::Int(right_value)) => {
                     match op {
                         ast::BinOp::Eq => return Ok(Value::Bool(left_value == right_value)),
@@ -288,7 +358,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         ast::BinOp::ShiftLeft => return Ok(Value::Int(left_value << right_value)),
                         ast::BinOp::ShiftRightArith => return Ok(Value::Int(left_value >> right_value)),
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "int", right: "int" },
                             loc: Some(expression.loc.clone())
                         })
                     }
@@ -301,7 +371,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         ast::BinOp::And => return Ok(Value::Bool(left_value && right_value)),
                         ast::BinOp::Or => return Ok(Value::Bool(left_value || right_value)),
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "bool", right: "bool" },
                             loc: Some(expression.loc.clone())
                         })
                     }
@@ -311,7 +381,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     let left_value = match state.heap.get(left_ptr) {
                         Some(HeapObject::List(l)) => l,
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Expected List Heap Objet")),
+                            error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
                             loc: Some(expression.loc.clone())
                         })
                     };
@@ -319,7 +389,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     let right_value = match state.heap.get(right_ptr) {
                         Some(HeapObject::List(l)) => l,
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Expected List Heap Objet")),
+                            error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
                             loc: Some(expression.loc.clone())
                         })
                     };
@@ -332,14 +402,18 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             Ok(Value::List(ptr))
                         },
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "list", right: "list" },
                             loc: Some(expression.loc.clone())
                         })
                     }
                 },
 
                 _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            error: InterpreterError::InvalidOperandTypesBin { 
+                                op: op.clone(), 
+                                left: left_value.get_type_name(), 
+                                right: right_value.get_type_name() 
+                            },
                             loc: Some(expression.loc.clone())
                         })
             }
@@ -347,12 +421,12 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
         ast::Expr::UnOp { ref op, ref expr } => {
             let value = eval_expression(state, &expr, program)?;
 
-            match value {
+            match value.clone() {
                 Value::Int(value) => {
                     match op {
                         ast::UnOp::Neg => return Ok(Value::Int(-value)),
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            error: InterpreterError::InvalidOperandTypesUn { op: op.clone(), operand: "int" },
                             loc: Some(expression.loc.clone())
                         })
                     }
@@ -362,14 +436,14 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     match op {
                         ast::UnOp::Not => return Ok(Value::Bool(!value)),
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            error: InterpreterError::InvalidOperandTypesUn { op: op.clone(), operand: "bool" },
                             loc: Some(expression.loc.clone())
                         })
                     }
                 },
 
                 _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Invalid type for operator")),
+                            error: InterpreterError::InvalidOperandTypesUn { op: op.clone(), operand: value.get_type_name() },
                             loc: Some(expression.loc.clone())
                         })
             }
@@ -381,7 +455,9 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             ref keyword_arguments,
             ref keyword_variadic_argument 
         } => {
-            match eval_expression(state, function, program)? {
+            let func_value = eval_expression(state, function, program)?;
+
+            match func_value {
                 Value::FunctionPtr(ptr) => 
                     call_function(
                         state,
@@ -399,7 +475,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             (arguments.clone(), expr.clone())
                         },
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Expected Lambda")),
+                            error: InterpreterError::InternalError("Expected Lambda Heap Object".to_string()),
                             loc: Some(function.loc.clone())
                         })
                     };
@@ -413,7 +489,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         let pos = argument_values.len();
                         let missing_arg = arguments.get(pos).unwrap();
                         return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Missing argument")),
+                            error: InterpreterError::ArgumentError(format!("Missing argument: '{}'", missing_arg.name)),
                             loc: Some(missing_arg.loc.clone())
                         })
                     }
@@ -427,7 +503,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         };
 
                         return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Unexpected argument")),
+                            error: InterpreterError::ArgumentError("Unexpected positional argument".to_string()),
                             loc: Some(extra_arg_expression.loc.clone())
                         })
                     }
@@ -445,8 +521,11 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     return value;
                 },
                 _ => Err(InterpreterErrorMessage {
-                        error: InterpreterError::Panic(String::from("Function not found")),
-                        loc: Some(expression.loc.clone())
+                        error: InterpreterError::TypeError { 
+                            expected: "callable (function or lambda)".to_string(), 
+                            got: func_value.get_type_name()
+                        },
+                        loc: Some(function.loc.clone())
                     })
             }
         },
@@ -459,31 +538,34 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     Some(HeapObject::Dictionary(dict)) => {
                         if !original_indexer_value.hashable() {
                              return Err(InterpreterErrorMessage {
-                                error: InterpreterError::Panic(String::from("Unhashable key for dictionary lookup")),
+                                error: InterpreterError::UnhashableKey,
                                 loc: Some(indexer.loc.clone())
                             })
                         }
                         match dict.get(&original_indexer_value) {
                             Some(value) => return Ok(value.clone()),
                             _ => return Err(InterpreterErrorMessage {
-                                error: InterpreterError::Panic(String::from("Key not found")),
+                                error: InterpreterError::KeyNotFound,
                                 loc: Some(indexer.loc.clone())
                             })
                         }
                     },
                     _ => {
                         return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Expected Dictionary Heap Object")),
+                            error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
                             loc: Some(indexed.loc.clone())
                         })
                     }
                 }
             }
 
-            let mut indexer_value = match original_indexer_value {
+            let mut indexer_value = match original_indexer_value.clone() {
                 Value::Int(i) => i,
                 _ => return Err(InterpreterErrorMessage {
-                    error: InterpreterError::Panic(String::from("Indexer for strings, tuples, lists needs to be an int")),
+                    error: InterpreterError::TypeError { 
+                        expected: "int".to_string(), 
+                        got: original_indexer_value.get_type_name() 
+                    },
                     loc: Some(indexer.loc.clone())
                 })
             };
@@ -497,7 +579,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
             if indexer_value < 0 || indexer_value >= (indexed_length as i64) {
                 return Err(InterpreterErrorMessage {
-                    error: InterpreterError::Panic(String::from("Index out of bounds")),
+                    error: InterpreterError::IndexOutOfBounds,
                     loc: Some(indexer.loc.clone())
                 });
             }
@@ -559,7 +641,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             eval_expression(state, &expression, program)
                         },
                         _ => Err(InterpreterErrorMessage {
-                                error: InterpreterError::Panic(String::from("Expected Expression at end of block")),
+                                error: InterpreterError::BlockError("Block used as expression must end with an expression".to_string()),
                                 loc: Some(last.loc.clone())
                             })
                     };
@@ -568,7 +650,10 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
                     value
                 },
-                [] => todo!()
+                [] => Err(InterpreterErrorMessage {
+                                error: InterpreterError::BlockError("Block used as expression must end with an expression".to_string()),
+                                loc: Some(expression.loc.clone())
+                            })
             }
         }
     }
@@ -582,7 +667,7 @@ fn get_indexed_length(state: &mut State, original_indexed_value: &Value, indexed
                 Some(HeapObject::Str(str)) => Ok(str.chars().count()),
                 _ => {
                     return Err(InterpreterErrorMessage {
-                        error: InterpreterError::Panic(String::from("Expected String Heap Object")),
+                        error: InterpreterError::InternalError("Expected String Heap Object".to_string()),
                         loc: Some(indexed.loc.clone())
                     })
                 }
@@ -594,14 +679,17 @@ fn get_indexed_length(state: &mut State, original_indexed_value: &Value, indexed
                 Some(HeapObject::List(l)) => Ok(l.len()),
                 _ => {
                     return Err(InterpreterErrorMessage {
-                        error: InterpreterError::Panic(String::from("Expected List Heap Object")),
+                        error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
                         loc: Some(indexed.loc.clone())
                     })
                 }
             }
         },
         _ => return Err(InterpreterErrorMessage {
-            error: InterpreterError::Panic(String::from("Only strings, tuples, lists and dictionaries can be indexed")),
+            error: InterpreterError::TypeError { 
+                expected: "indexable (string, tuple, list, dict)".to_string(), 
+                got: original_indexed_value.get_type_name()
+            },
             loc: Some(indexed.loc.clone())
         })
     }
@@ -620,7 +708,7 @@ fn call_function(
     let function = match program.functions.get(function_name) {
         Some(f) => f,
         _ => return Err(InterpreterErrorMessage {
-                error: InterpreterError::Panic(String::from("Function not found")),
+                error: InterpreterError::FunctionNotFound(function_name.to_string()),
                 loc: Some(loc.clone())
             })
     };
@@ -633,19 +721,22 @@ fn call_function(
     match &variadic_argument {
         Some(arg) => {
             let value = eval_expression(state, &arg.expr, program)?;
-            let extra_args: Vec<Value> = match value {
+            let extra_args: Vec<Value> = match value.clone() {
                 Value::Tuple(elements) => elements,
                 Value::List(ptr) => {
                     match state.heap.get(ptr) {
                         Some(HeapObject::List(list)) => list.clone(),
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Expected List object")),
+                            error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
                             loc: Some(arg.loc.clone())
                         })
                     }
                 },
                 x => return Err(InterpreterErrorMessage {
-                    error: InterpreterError::Panic("Only tuples or list can be passed as variadic arguments".to_string()),
+                    error: InterpreterError::TypeError {
+                        expected: "tuple or list".to_string(),
+                        got: value.get_type_name()
+                    },
                     loc: Some(arg.loc.clone())
                 })
             };
@@ -665,23 +756,23 @@ fn call_function(
     match keyword_variadic_argument {
         Some(arg) => {
             let value = eval_expression(state, &arg.expr, program)?;
-            match value {
+            match value.clone() {
                 Value::Dictionary(ptr) => {
                     let index_ref = match state.heap.get(ptr) {
                         Some(HeapObject::Dictionary(d)) => d,
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Expected Dict object")),
+                            error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
                             loc: Some(arg.loc.clone())
                         })
                     };
 
                     for (key, value) in index_ref.iter() {
-                        match key {
+                        match key.clone() {
                             Value::Str(ptr) => {
-                                let s = match state.heap.get(*ptr) {
+                                let s = match state.heap.get(ptr) {
                                     Some(HeapObject::Str(s)) => s,
                                     _ => return Err(InterpreterErrorMessage {
-                                        error: InterpreterError::Panic(String::from("Expected Str object")),
+                                        error: InterpreterError::InternalError("Expected String Heap Object".to_string()),
                                         loc: Some(arg.loc.clone())
                                     })
                                 };
@@ -691,14 +782,20 @@ fn call_function(
                                 }
                             },
                             x => return Err(InterpreterErrorMessage {
-                                error: InterpreterError::Panic(String::from("Dicts passed as variadic kwargs have to only have string keys")),
+                                error: InterpreterError::TypeError {
+                                    expected: "string key".to_string(),
+                                    got: key.get_type_name()
+                                },
                                 loc: Some(arg.loc.clone())
                             })                               
                         }
                     }
                 },
                 x => return Err(InterpreterErrorMessage {
-                    error: InterpreterError::Panic("Only dict can be passed as keyword variadic arguments".to_string()),
+                    error: InterpreterError::TypeError {
+                        expected: "dict".to_string(),
+                        got: value.get_type_name()
+                    },
                     loc: Some(arg.loc.clone())
                 })
             };
@@ -710,7 +807,7 @@ fn call_function(
         let pos = argument_values.len();
         let missing_arg = function.contract.positional_arguments.get(pos).unwrap();
         return Err(InterpreterErrorMessage {
-            error: InterpreterError::Panic(String::from("Missing argument")),
+            error: InterpreterError::ArgumentError(format!("Missing argument: '{}'", missing_arg.name)),
             loc: Some(missing_arg.loc.clone())
         })
     }
@@ -724,7 +821,7 @@ fn call_function(
         };
 
         return Err(InterpreterErrorMessage {
-            error: InterpreterError::Panic(String::from("Unexpected argument")),
+            error: InterpreterError::ArgumentError("Unexpected positional argument".to_string()),
             loc: Some(extra_arg_expression.loc.clone())
         })
     }
@@ -748,7 +845,7 @@ fn call_function(
     for (key, (arg, value)) in keyword_values {
         match function.contract.keyword_arguments.iter().filter(|y| y.name == key).peekable().peek() {
             Some(_) => {
-                new_values.insert(key, value);
+                new_values.insert(key.clone(), value);
             }
             _ => {
                 match &function.contract.keyword_variadic_argument {
@@ -759,14 +856,14 @@ fn call_function(
                     _ => match arg {
                         Some(arg) => {
                             return Err(InterpreterErrorMessage {
-                                error: InterpreterError::Panic(String::from("Unexpected Argument")),
+                                error: InterpreterError::ArgumentError(format!("Unexpected keyword argument: '{}'", arg.name)),
                                 loc: Some(arg.loc.clone())
                             })
                         },
                         _ => {
                             // If we do not have an arg passed this means that it originally came from the keyword_variadic argument
                             return Err(InterpreterErrorMessage {
-                                error: InterpreterError::Panic(String::from("Unexpected Argument")),
+                                error: InterpreterError::ArgumentError(format!("Unexpected keyword argument: '{}'", key)),
                                 loc: Some(keyword_variadic_argument.as_ref().unwrap().loc.clone())
                             })
                         },
@@ -800,7 +897,7 @@ fn call_function(
         },
         Ok(_) => {
             return Err(InterpreterErrorMessage {
-                error: InterpreterError::Panic(String::from("Function should have returned a value")),
+                error: InterpreterError::MissingReturnValue,
                 loc: Some(loc.clone())
             })
         },
@@ -827,7 +924,7 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                     if let Value::Dictionary(ptr) = original_indexed_value {
                         if !original_indexer_value.hashable() {
                              return Err(InterpreterErrorMessage {
-                                error: InterpreterError::Panic(String::from("Unhashable key for dictionary assignment")),
+                                error: InterpreterError::UnhashableKey,
                                 loc: Some(indexer.loc.clone())
                             })
                         }
@@ -837,7 +934,7 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                             },
                             _ => {
                                 return Err(InterpreterErrorMessage {
-                                    error: InterpreterError::Panic(String::from("Expected Dictionary Heap Object")),
+                                    error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
                                     loc: Some(indexed.loc.clone())
                                 })
                             }
@@ -846,10 +943,13 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                         return Ok(None);
                     }
 
-                    let mut indexer_value = match original_indexer_value {
+                    let mut indexer_value = match original_indexer_value.clone() {
                         Value::Int(i) => i,
                         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Indexer for strings, tuples, lists needs to be an int")),
+                            error: InterpreterError::TypeError { 
+                                expected: "int".to_string(), 
+                                got: original_indexer_value.get_type_name() 
+                            },
                             loc: Some(indexer.loc.clone())
                         })
                     };
@@ -863,7 +963,7 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
 
                     if indexer_value < 0 || indexer_value >= (indexed_length as i64) {
                         return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Index out of bounds")),
+                            error: InterpreterError::IndexOutOfBounds,
                             loc: Some(indexer.loc.clone())
                         });
                     }
@@ -871,16 +971,16 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                     let index = indexer_value as usize;
 
                     match original_indexed_value {
-                        Value::Str(ptr) => {
+                        Value::Str(_) => {
                              return Err(InterpreterErrorMessage {
-                                error: InterpreterError::Panic(String::from("Strings are immutable")),
-                                loc: Some(indexer.loc.clone())
+                                error: InterpreterError::ImmutabilityError("Strings are immutable".to_string()),
+                                loc: Some(target.loc.clone())
                             });
                         },
-                        Value::Tuple(values) => {
+                        Value::Tuple(_) => {
                             return Err(InterpreterErrorMessage {
-                                error: InterpreterError::Panic(String::from("Tuples are immutable")),
-                                loc: Some(indexer.loc.clone())
+                                error: InterpreterError::ImmutabilityError("Tuples are immutable".to_string()),
+                                loc: Some(target.loc.clone())
                             });
                         },
                         Value::List(ptr) => {
@@ -902,7 +1002,7 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                     })
                 },
                 _ => return Err(InterpreterErrorMessage {
-                        error: InterpreterError::Panic(String::from("Invalid LHS")),
+                        error: InterpreterError::InvalidAssignmentTarget,
                         loc: Some(target.loc.clone())
                     })
             }
@@ -924,7 +1024,10 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                 }
                 x => {
                     return Err(InterpreterErrorMessage {
-                        error: InterpreterError::Panic(format!("Using non-bool value in if condition")),
+                        error: InterpreterError::TypeError { 
+                            expected: "bool".to_string(), 
+                            got: x.get_type_name() 
+                        },
                         loc: Some(condition.loc.clone())
                     });
                 }
@@ -937,7 +1040,10 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                 Value::Bool(b) => b,
                 x => {
                     return Err(InterpreterErrorMessage {
-                        error: InterpreterError::Panic(format!("Using non-bool value in loop")),
+                        error: InterpreterError::TypeError { 
+                            expected: "bool".to_string(), 
+                            got: x.get_type_name() 
+                        },
                         loc: Some(condition.loc.clone())
                     });
                 }
@@ -954,7 +1060,10 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                     Value::Bool(b) => b,
                     x => {
                         return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(format!("Using non-bool value in loop")),
+                            error: InterpreterError::TypeError { 
+                                expected: "bool".to_string(), 
+                                got: x.get_type_name() 
+                            },
                             loc: Some(condition.loc.clone())
                         });
                     }
@@ -980,6 +1089,7 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
             state.stack.drop_frame();
         },
         ast::Stmt::Expression { expr: expression } => {
+            // Behave like return statement
             return Ok(Some(eval_expression(state, expression, program)?));
         }
     }
@@ -989,26 +1099,29 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
 
 
 fn unpack_elements(state: &State, variables: &Vec<ast::LocExpr>, value: Value, value_loc: &ast::Loc) -> Result<Vec<(String, Value)>, InterpreterErrorMessage> {
-    let values = match value {
+    let values = match value.clone() {
         Value::Tuple(elements) => elements,
         Value::List(ptr) => {
             match state.heap.get(ptr) {
                 Some(HeapObject::List(elements)) => elements.clone(),
                 _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Expected List Heap Object")),
+                            error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
                             loc: Some(value_loc.clone())
                         }),
             }
         },
         _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Can only unpack Tuples and Lists")),
+                            error: InterpreterError::TypeError { 
+                                expected: "tuple or list".to_string(), 
+                                got: value.get_type_name() 
+                            },
                             loc: Some(value_loc.clone())
                         })
     };
 
     if variables.len() != values.len() {
         return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Unpacking values of unequal length")),
+                            error: InterpreterError::UnpackError(format!("Values mismatch: expected {} variables but got {} values", variables.len(), values.len())),
                             loc: Some(value_loc.clone())
                         })
     }
@@ -1025,8 +1138,8 @@ fn unpack_elements(state: &State, variables: &Vec<ast::LocExpr>, value: Value, v
                 results.extend(rec);
             },
             _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::Panic(String::from("Invalid expression, expected variable, list or tuple to unpack into")),
-                            loc: Some(value_loc.clone())
+                            error: InterpreterError::InvalidAssignmentTarget,
+                            loc: Some(var.loc.clone())
                         })
         }
     }
