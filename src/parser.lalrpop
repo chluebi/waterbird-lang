@@ -83,46 +83,69 @@ Body: parse_ast::LocStmt = {
     },
 };
 
-Statements: Vec<parse_ast::LocStmt> = {
-    <stmt:Statement> ";" <stmts:Statements> => {
-        let mut stmts = stmts;
-        stmts.insert(0, stmt);
-        stmts
-    },
-    <c_stmts:ControlFlow> <stmts:Statements> => {
-        let mut c_stmts = c_stmts;
-        c_stmts.extend(stmts);
-        c_stmts
-    },
-    <start: @L> "#{" <b:Body> "}" ";" <end: @R> <stmts:Statements> => {
-        let mut b = vec![b];
-        b.extend(stmts);
-        b
-    },
-    <stmt:Statement> => vec![stmt],
-    => vec![]
-};
-
 ExprStatements: Vec<parse_ast::LocStmt> = {
     <stmt:Statement> ";" <stmts:ExprStatements> => {
-        let mut stmts = stmts;
-        stmts.insert(0, stmt);
-        stmts
+        let mut v = stmts;
+        v.insert(0, stmt);
+        v
     },
-    <c_stmts:ControlFlow> <stmts:ExprStatements> => {
-        let mut c_stmts = c_stmts;
-        c_stmts.extend(stmts);
-        c_stmts
+    <finalexpr:FinalExpression> => vec![finalexpr],
+    <cf:ControlFlow> <stmts:ExprStatements> => {
+        let mut s = cf;
+        s.extend(stmts);
+        s
     },
-    <start: @L> "#{" <b:Body> "}" ";" <end: @R> <stmts:ExprStatements> => {
-        let mut b = vec![b];
-        b.extend(stmts);
-        b
-    },
-    <finalexpr:FinalExpr> => vec![finalexpr]
+    <block:BlockStatement> <stmts:ExprStatements> => {
+        let mut v = vec![block];
+        v.extend(stmts);
+        v
+    }
 };
 
-FinalExpr: parse_ast::LocStmt = {
+ExprBlock: parse_ast::LocExpr = {
+    <start: @L> "#{" <b:ExprStatements> "}" <end: @R> => {
+        parse_ast::LocExpr {
+            expr: parse_ast::Expr::Block { statements: b },
+            loc: start..end
+        }
+    }
+};
+
+
+
+Statements: Vec<parse_ast::LocStmt> = {
+    <stmt:Statement> ";" => vec![stmt],
+    <stmt:Statement> => vec![stmt],
+    <finalexpr:FinalExpression> => vec![finalexpr],
+    <stmt:Statement> ";" <stmts:Statements> => {
+        let mut s = stmts;
+        s.insert(0, stmt);
+        s
+    },
+    <cf:ControlFlow> <stmts:Statements> => {
+        let mut s = cf;
+        s.extend(stmts);
+        s
+    },
+    <block:BlockStatement> <stmts:Statements> => {
+        let mut v = vec![block];
+        v.extend(stmts);
+        v
+    },
+};
+
+BlockStatement: parse_ast::LocStmt = {
+    <start: @L> "{" <b:Body> "}" ";" <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Block {
+                statements: vec![b]
+            },
+            loc: start..end
+        }
+    }
+};
+
+FinalExpression: parse_ast::LocStmt = {
     <e:Expression> => {
         let loc = e.loc.clone();
         parse_ast::LocStmt {
@@ -134,8 +157,40 @@ FinalExpr: parse_ast::LocStmt = {
     }
 }
 
+ControlFlowBody: parse_ast::LocStmt = {
+    <start: @L> <stmts:ControlFlowStatements> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Block {
+                statements: stmts
+            },
+            loc: start..end
+        }
+        
+    },
+};
+
+ControlFlowStatements: Vec<parse_ast::LocStmt> = {
+    <stmt:Statement> ";" <stmts:ControlFlowStatements> => {
+        let mut stmts = stmts;
+        stmts.insert(0, stmt);
+        stmts
+    },
+    <c_stmts:ControlFlow> <stmts:ControlFlowStatements> => {
+        let mut c_stmts = c_stmts;
+        c_stmts.extend(stmts);
+        c_stmts
+    },
+    <b:BlockStatement> <stmts:ControlFlowStatements> => {
+        let mut b = vec![b];
+        b.extend(stmts);
+        b
+    },
+    <stmt:Statement> ";" => vec![stmt]
+};
+
+
 ControlFlow: Vec<parse_ast::LocStmt> = {
-    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:Body> "}" <end2: @R>  => {
+    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:ControlFlowBody> "}" <end2: @R>  => {
         vec![
             parse_ast::LocStmt {
                 stmt: parse_ast::Stmt::IfElse {
@@ -152,7 +207,7 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
             }
         ]
     },
-    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:Body> "}" "else" "{" <else_body:Body> "}"  => {
+    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:ControlFlowBody> "}" "else" "{" <else_body:ControlFlowBody> "}"  => {
         vec![
             parse_ast::LocStmt {
                 stmt: parse_ast::Stmt::IfElse {
@@ -164,7 +219,7 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
             }
         ]
     },
-    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:Body> "}" "else" <start2: @L> <next_cf:ControlFlow> <end2: @R> => {
+    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:ControlFlowBody> "}" "else" <start2: @L> <next_cf:ControlFlow> <end2: @R> => {
         vec![
             parse_ast::LocStmt {
                 stmt: parse_ast::Stmt::IfElse {
@@ -181,7 +236,7 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
             }
         ]
     },
-    <start: @L> "while" <c:Expression> <end: @R>  "{" <b:Body> "}" => {
+    <start: @L> "while" <c:Expression> <end: @R>  "{" <b:ControlFlowBody> "}" => {
         vec![
             parse_ast::LocStmt {
                 stmt: parse_ast::Stmt::While {
@@ -354,14 +409,7 @@ CallArgument: parse_ast::LocCallArgument = {
 Expression: parse_ast::LocExpr = {
     #[precedence(level="0")]
     Term,
-    <start: @L> "#{" <stmts:ExprStatements> "}" <end: @R> => {
-        parse_ast::LocExpr {
-            expr: parse_ast::Expr::Block {
-                statements: stmts
-            },
-            loc: start..end
-        }
-    },
+    ExprBlock,
     #[precedence(level="1")] #[assoc(side="left")]
     <start: @L> "(" <e:Expression> "," <elts: CommaSeperatedExpressions> ")" <end: @R> => {
         let mut elts = elts;

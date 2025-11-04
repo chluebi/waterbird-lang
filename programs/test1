@@ -1,21 +1,9 @@
 test() {
-    i = 0;
-    if i == 0 {
-        i = 100;
-        j = 1;
-    }
-
-    #{
-        i += 1;
-    };
-
-    return #{
-        j = 2;
-
-        i * j
-    } * #{5};
+    i = 2;
+    i = #{ i = 1; i };
+    i * 5
 }
 
 main() {
-    return test();
+    test()
 }
