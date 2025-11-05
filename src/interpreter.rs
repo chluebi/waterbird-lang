@@ -1269,9 +1269,196 @@ fn call_builtin(
             
             return Ok(Ok(result_value));
         },
-        "str" => todo!(),
-        "tuple" => todo!(),
-        "list" => todo!(),
+        "str" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![],
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let values = match args_map.get("args").unwrap() {
+                Value::List(ptr) => match state.heap.get(*ptr) {
+                    Some(HeapObject::List(l)) => l,
+                    _ => unreachable!()
+                },
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
+            };
+
+            let result_string = if values.is_empty() {
+                // Case 1: str() -> ""
+                String::from("")
+            } else {
+                // Case 2: str(x)
+                let value_to_convert = &values[0];
+                DisplayValue { heap: &state.heap, value: value_to_convert }.to_string()
+            };
+
+            let ptr = state.heap.intern_string(result_string);
+            
+            return Ok(Ok(Value::String(ptr)));
+        },
+        "tuple" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![],
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let values = match args_map.get("args").unwrap() {
+                Value::List(ptr) => match state.heap.get(*ptr) {
+                    Some(HeapObject::List(l)) => l,
+                    _ => unreachable!()
+                },
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
+            };
+
+            let iterable_elements: Vec<Value>;
+
+            if values.is_empty() {
+                // Case 1: tuple() -> ()
+                iterable_elements = vec![];
+            } else if values.len() == 1 {
+                // Case 2: tuple(x) - Convert iterable x
+                let value_to_convert = &values[0];
+
+                match value_to_convert {
+                    Value::Tuple(v) => {
+                        iterable_elements = v.clone();
+                    },
+                    Value::List(ptr) => {
+                        let l = match state.heap.get(*ptr) {
+                            Some(HeapObject::List(l)) => l,
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap for Value::List")), loc: Some(loc.clone())})
+                        };
+                        iterable_elements = l.clone();
+                    },
+                    Value::String(ptr) => {
+                        let s = match state.heap.get(*ptr) {
+                            Some(HeapObject::Str(s)) => s.clone(),
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
+                        };
+                        iterable_elements = s.chars().map(|c| {
+                            let s_ptr = state.heap.intern_string(c.to_string());
+                            Value::String(s_ptr)
+                        }).collect();
+                    },
+                    Value::Dictionary(ptr) => {
+                        let d = match state.heap.get(*ptr) {
+                            Some(HeapObject::Dictionary(d)) => d,
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap for Value::Dictionary")), loc: Some(loc.clone())})
+                        };
+                        iterable_elements = d.keys().cloned().collect();
+                    },
+                    _ => {
+                        return Err(InterpreterErrorMessage {
+                            error: InterpreterError::ConversionError { 
+                                expected: "iterable".to_string(), 
+                                got: format!("{:?}", value_to_convert)
+                            },
+                            loc: Some(loc.clone())
+                        })
+                    }
+                }
+            } else {
+                iterable_elements = values.clone();
+            }
+
+            return Ok(Ok(Value::Tuple(iterable_elements)));
+        },
+        "list" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![],
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let values = match args_map.get("args").unwrap() {
+                Value::List(ptr) => match state.heap.get(*ptr) {
+                    Some(HeapObject::List(l)) => l,
+                    _ => unreachable!()
+                },
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
+            };
+            
+            let iterable_elements: Vec<Value>;
+
+            if values.is_empty() {
+                // Case 1: list() -> []
+                iterable_elements = vec![];
+            } else if values.len() == 1 {
+                // Case 2: list(x) - Convert iterable x
+                let value_to_convert = &values[0];
+
+                match value_to_convert {
+                    Value::Tuple(v) => {
+                        iterable_elements = v.clone();
+                    },
+                    Value::List(ptr) => {
+                        let l = match state.heap.get(*ptr) {
+                            Some(HeapObject::List(l)) => l,
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap for Value::List")), loc: Some(loc.clone())})
+                        };
+                        iterable_elements = l.clone();
+                    },
+                    Value::String(ptr) => {
+                        let s = match state.heap.get(*ptr) {
+                            Some(HeapObject::Str(s)) => s.clone(),
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
+                        };
+                        iterable_elements = s.chars().map(|c| {
+                            let s_ptr = state.heap.intern_string(c.to_string());
+                            Value::String(s_ptr)
+                        }).collect();
+                    },
+                    Value::Dictionary(ptr) => {
+                        let d = match state.heap.get(*ptr) {
+                            Some(HeapObject::Dictionary(d)) => d,
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap for Value::Dictionary")), loc: Some(loc.clone())})
+                        };
+                        iterable_elements = d.keys().cloned().collect();
+                    },
+                    _ => {
+                        return Err(InterpreterErrorMessage {
+                            error: InterpreterError::ConversionError { 
+                                expected: "iterable".to_string(), 
+                                got: format!("{:?}", value_to_convert)
+                            },
+                            loc: Some(loc.clone())
+                        })
+                    }
+                }
+            } else {
+                iterable_elements = values.clone();
+            }
+            
+            let ptr = state.heap.alloc(HeapObject::List(iterable_elements));
+            
+            return Ok(Ok(Value::List(ptr)));
+        },
         "dict" => todo!(),
 
         "print" => {
