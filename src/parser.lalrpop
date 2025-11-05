@@ -616,11 +616,6 @@ Mapping: (parse_ast::LocExpr, parse_ast::LocExpr) = {
 
 
 
-Type: parse_ast::TypeLiteral = {
-    "int" => parse_ast::TypeLiteral::Int
-}
-
-
 Num: i64 = <s:NumString> => i64::from_str(s).unwrap();
 
 String: String = {
@@ -659,13 +654,6 @@ match {
     "return",
     "true",
     "false",
-
-    "int",
-    "bool",
-    "string",
-    "tuple",
-    "list",
-    "dict",
 
     "=",
     "+",

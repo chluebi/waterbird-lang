@@ -1,6 +1,8 @@
 main() {
     print(1);
-    i = 33;
-    print(i);
-    i
+    i = int("0");
+    if i {
+        return 1;
+    }
+    0
 }

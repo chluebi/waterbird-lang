@@ -483,15 +483,49 @@ impl Stmt {
                 })
             },
             Stmt::IfElse { cond: condition, if_body, else_body } => {
+                let loc = condition.clone().loc;
+                let func_call_cond = LocExpr {
+                    loc: loc.clone(),
+                    expr: Expr::FunctionCall {
+                        function: Box::new(LocExpr {
+                            expr: Expr::Variable(String::from("bool")),
+                            loc: loc.clone(),
+                        }),
+                        arguments: vec![
+                            LocCallArgument {
+                                argument: CallArgument::PositionalArgument(condition),
+                                loc: loc.clone(),
+                            }
+                        ],
+                    }
+                };
+                
                 Ok(ast::Stmt::IfElse {
-                    cond: LocExpr::preprocess(condition)?,
+                    cond: LocExpr::preprocess(func_call_cond)?, 
                     if_body: Box::new(LocStmt::preprocess(*if_body)?),
                     else_body: Box::new(LocStmt::preprocess(*else_body)?)
                 })
             },
             Stmt::While { cond: condition, body } => {
+                let loc = condition.clone().loc;
+                let func_call_cond = LocExpr {
+                    loc: condition.loc.clone(),
+                    expr: Expr::FunctionCall {
+                        function: Box::new(LocExpr {
+                            expr: Expr::Variable(String::from("bool")),
+                            loc: condition.loc.clone(),
+                        }),
+                        arguments: vec![
+                            LocCallArgument {
+                                argument: CallArgument::PositionalArgument(condition),
+                                loc: loc.clone(),
+                            }
+                        ],
+                    }
+                };
+
                 Ok(ast::Stmt::While {
-                    cond: LocExpr::preprocess(condition)?,
+                    cond: LocExpr::preprocess(func_call_cond)?,
                     body: Box::new(LocStmt::preprocess(*body)?)
                 })
             },

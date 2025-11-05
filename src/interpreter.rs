@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 use std::fmt;
 use slab::Slab;
 
+use crate::ast::TypeLiteral;
 use crate::{ast};
 
 pub type Ptr = usize;
@@ -306,6 +307,10 @@ pub enum InterpreterError {
         expected: String,
         got: &'static str,
     },
+    ConversionError {
+        expected: String,
+        got: String,
+    },
     ArgumentError(String), // For missing/extra args
     ImmutabilityError(String), // For trying to assign to tuple/string
     InvalidAssignmentTarget,
@@ -334,6 +339,9 @@ impl fmt::Display for InterpreterError {
             },
             InterpreterError::TypeError { expected, got } => {
                 write!(f, "Type error: expected {}, got {}", expected, got)
+            },
+            InterpreterError::ConversionError { expected, got } => {
+                write!(f, "Conversion error: expected {}, got {}", expected, got)
             },
             InterpreterError::ArgumentError(msg) => write!(f, "Argument error: {}", msg),
             InterpreterError::ImmutabilityError(msg) => write!(f, "Immutability error: {}", msg),
@@ -774,12 +782,12 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     Ok(Ok(values[index].clone()))
                 },
                 Value::List(ptr) => {
-                     match state.heap.get(ptr) {
-                        Some(HeapObject::List(l)) => {
-                            Ok(Ok(l[index].clone()))
-                        },
-                        _ => unreachable!()
-                     }
+                    match state.heap.get(ptr) {
+                    Some(HeapObject::List(l)) => {
+                        Ok(Ok(l[index].clone()))
+                    },
+                    _ => unreachable!()
+                    }
                 },
                 _ => unreachable!()
             }
@@ -868,21 +876,18 @@ fn get_indexed_length(state: &mut State, original_indexed_value: &Value, indexed
     }
 }
 
-fn call_function(
+
+fn preprocess_args(
     state: &mut State,
-    function_name: &str,
+    contract: &ast::FunctionPrototype,
     loc: &ast::Loc,
     positional_arguments: &Vec<ast::CallArgument>,
     variadic_argument: &Option<ast::CallArgument>,
     keyword_arguments: &Vec<ast::CallKeywordArgument>,
     keyword_variadic_argument: &Option<ast::CallArgument>,
     program: &ast::Program
-) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
-    let function = match program.functions.get(function_name) {
-        Some(f) => f,
-        _ => return call_builtin(state, function_name, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)
-    };
-
+) -> Result<Result<HashMap<String, Value>, Value>, InterpreterErrorMessage> {
+    
     let argument_values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
         = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expr, program)).collect();
 
@@ -989,17 +994,17 @@ fn call_function(
         _ => ()
     }
 
-    if argument_values.len() < function.contract.positional_arguments.len() {
+    if argument_values.len() < contract.positional_arguments.len() {
         let pos = argument_values.len();
-        let missing_arg = function.contract.positional_arguments.get(pos).unwrap();
+        let missing_arg = contract.positional_arguments.get(pos).unwrap();
         return Err(InterpreterErrorMessage {
             error: InterpreterError::ArgumentError(format!("Missing argument: '{}'", missing_arg.name)),
             loc: Some(missing_arg.loc.clone())
         })
     }
 
-    if function.contract.variadic_argument.is_none() && argument_values.len() > function.contract.positional_arguments.len() {
-        let pos = function.contract.positional_arguments.len();
+    if contract.variadic_argument.is_none() && argument_values.len() > contract.positional_arguments.len() {
+        let pos = contract.positional_arguments.len();
         
         let extra_arg_expression = match pos < positional_arguments.len() {
             true => positional_arguments.get(pos).unwrap(),
@@ -1012,19 +1017,19 @@ fn call_function(
         })
     }
 
-    let mut new_values: HashMap<String, Value> = function.contract.positional_arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
+    let mut new_values: HashMap<String, Value> = contract.positional_arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
 
-    if argument_values.len() > function.contract.positional_arguments.len() {
+    if argument_values.len() > contract.positional_arguments.len() {
         // from previous logic the only way this happens if we have a variadic accepting argument in the function
-        let extra_args = &argument_values[function.contract.positional_arguments.len()..];
+        let extra_args = &argument_values[contract.positional_arguments.len()..];
         let ptr = state.heap.alloc(HeapObject::List(extra_args.to_vec()));
 
-        new_values.insert(function.contract.variadic_argument.clone().unwrap().name, Value::List(ptr));
+        new_values.insert(contract.variadic_argument.clone().unwrap().name, Value::List(ptr));
     }
 
     let mut keyword_variadic_arguments: HashMap<Value, Value> = HashMap::new();
 
-    for keyword_arg in function.contract.keyword_arguments.clone() {
+    for keyword_arg in contract.keyword_arguments.clone() {
         let value = match eval_expression(state, &keyword_arg.expr, program)? {
             Ok(value) => value,
             Err(value) => return Ok(Err(value))
@@ -1033,12 +1038,12 @@ fn call_function(
     }
 
     for (key, (arg, value)) in keyword_values {
-        match function.contract.keyword_arguments.iter().filter(|y| y.name == key).peekable().peek() {
+        match contract.keyword_arguments.iter().filter(|y| y.name == key).peekable().peek() {
             Some(_) => {
                 new_values.insert(key.clone(), value);
             }
             _ => {
-                match &function.contract.keyword_variadic_argument {
+                match &contract.keyword_variadic_argument {
                     Some(_) => {
                         let ptr = state.heap.alloc(HeapObject::Str(String::from(key)));
                         keyword_variadic_arguments.insert(Value::String(ptr), value);
@@ -1063,15 +1068,38 @@ fn call_function(
         }
     }
 
-    match &function.contract.keyword_variadic_argument {
+    match &contract.keyword_variadic_argument {
         Some(arg) => {
             let ptr = state.heap.alloc(HeapObject::Dictionary(keyword_variadic_arguments));
             new_values.insert(arg.name.clone(), Value::Dictionary(ptr) );
         },
         _ => assert!(keyword_variadic_arguments.is_empty())
-    }
+    };
 
+    Ok(Ok(new_values))
+}
 
+fn call_function(
+    state: &mut State,
+    function_name: &str,
+    loc: &ast::Loc,
+    positional_arguments: &Vec<ast::CallArgument>,
+    variadic_argument: &Option<ast::CallArgument>,
+    keyword_arguments: &Vec<ast::CallKeywordArgument>,
+    keyword_variadic_argument: &Option<ast::CallArgument>,
+    program: &ast::Program
+) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
+    let function = match program.functions.get(function_name) {
+        Some(f) => f,
+        _ => return call_builtin(state, function_name, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)
+    };
+
+    let new_values = preprocess_args(state, &function.contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+
+    let new_values = match new_values {
+        Ok(v) => v,
+        Err(v) => return Ok(Err(v))
+    };
 
     state.stack.new_function_context();
 
@@ -1108,28 +1136,170 @@ fn call_builtin(
 ) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
 
     match function_name {
-        "int" => todo!(),
-        "bool" => todo!(),
+        "int" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![],
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let values = match args_map.get("args").unwrap() {
+                Value::List(ptr) => match state.heap.get(*ptr) {
+                    Some(HeapObject::List(l)) => l,
+                    _ => unreachable!()
+                },
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
+            };
+            
+            let result_value = if values.is_empty() {
+                // Case 1: int() -> 0
+                Value::Int(0)
+            } else {
+                // Case 2: int(x)
+                let value_to_convert = &values[0];
+                match value_to_convert {
+                    Value::Int(i) => Value::Int(*i),
+                    Value::Bool(b) => Value::Int(if *b { 1 } else { 0 }),
+                    Value::String(ptr) => {
+                        // Retrieve string content from the heap
+                        let s = match state.heap.get(*ptr) {
+                            Some(HeapObject::Str(s)) => s,
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
+                        };
+                        
+                        // Attempt to parse the string
+                        match s.parse::<i64>() {
+                            Ok(i) => Value::Int(i),
+                            Err(_) => {
+                                return Err(InterpreterErrorMessage {
+                                    error: InterpreterError::ConversionError { 
+                                        expected: "int".to_string(), 
+                                        got: s.clone()
+                                    },
+                                    loc: Some(loc.clone())
+                                })
+                            }
+                        }
+                    },
+                    _ => {
+                        return Err(InterpreterErrorMessage {
+                            error: InterpreterError::ConversionError { 
+                                expected: "int".to_string(), 
+                                got: format!("{:?}", value_to_convert)
+                            },
+                            loc: Some(loc.clone())
+                        })
+                    }
+                }
+            };
+            
+            return Ok(Ok(result_value));
+        },
+        "bool" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![],
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let values = match args_map.get("args").unwrap() {
+                Value::List(ptr) => match state.heap.get(*ptr) {
+                    Some(HeapObject::List(l)) => l,
+                    _ => unreachable!()
+                },
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
+            };
+
+            let result_value = if values.is_empty() {
+                // Case 1: bool() -> False
+                Value::Bool(false)
+            } else {
+                // Case 2: bool(x)
+                let value_to_convert = &values[0];
+
+                match value_to_convert {
+                    Value::Bool(b) => Value::Bool(*b),
+                    Value::Int(i) => Value::Bool(*i != 0),
+                    Value::Void => Value::Bool(false),
+                    Value::String(ptr) => {
+                        // Retrieve string content from the heap
+                        let s = match state.heap.get(*ptr) {
+                            Some(HeapObject::Str(s)) => s,
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
+                        };
+                        Value::Bool(!s.is_empty())
+                    },
+                    Value::Tuple(v) => Value::Bool(!v.is_empty()),
+                    Value::List(ptr) => {
+                        // Retrieve list content from the heap
+                        let l = match state.heap.get(*ptr) {
+                            Some(HeapObject::List(l)) => l,
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap for Value::List")), loc: Some(loc.clone())})
+                        };
+                        Value::Bool(!l.is_empty())
+                    },
+                    Value::Dictionary(ptr) => {
+                        // Retrieve dictionary content from the heap (assuming `HeapObject::Dict(d)` yields a reference with `is_empty()`)
+                        let d = match state.heap.get(*ptr) {
+                            Some(HeapObject::Dictionary(d)) => d,
+                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap for Value::Dictionary")), loc: Some(loc.clone())})
+                        };
+                        Value::Bool(!d.is_empty())
+                    },
+                    // Functions and Lambdas are generally truthy
+                    Value::Lambda(_) | Value::FunctionPtr(_) | Value::NameSpacePtr(_) => Value::Bool(true),
+                }
+            };
+            
+            return Ok(Ok(result_value));
+        },
         "str" => todo!(),
         "tuple" => todo!(),
         "list" => todo!(),
         "dict" => todo!(),
 
         "print" => {
-            let output: Result<Result<Vec<String>, Value>, InterpreterErrorMessage> = positional_arguments.into_iter()
-                .map(|v| {
-                    match eval_expression(state, &*v.expr, program) {
-                        Ok(Ok(v)) => Ok(Ok(format!("{}", DisplayValue {heap: &state.heap, value: &v}))),
-                        Ok(Err(v)) => Ok(Err(v)),
-                        Err(e) => Err(e)
-                    }
-                }).collect();
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![],
+                variadic_argument: Some(ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0}),
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
 
-            let output = match output? {
-                Ok(o) => o,
+            let args = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args = match args {
+                Ok(v) => v,
                 Err(v) => return Ok(Err(v))
             };
-            println!("{}", output.join(" "));
+
+            let values = match args.get("l").unwrap() {
+                Value::List(ptr) => match state.heap.get(*ptr) {
+                    Some(HeapObject::List(l)) => {
+                        l
+                    },
+                    _ => unreachable!()
+                },
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected")), loc: Some(loc.clone())})
+            };
+
+            println!("{}", values.iter().map(|x| format!("{}", DisplayValue {heap: &state.heap, value: x})).collect::<Vec<String>>().join(" "));
             return Ok(Ok(Value::Void))
         },
         "len" => todo!(),
