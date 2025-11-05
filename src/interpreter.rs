@@ -802,6 +802,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                                 return Err(e)
                             },
                             Ok(StatementReturn::Return(v)) => {
+                                state.stack.drop_frame();
                                 return Ok(Err(v)) // we *return* a value
                             },
                             Ok(_) => {}
@@ -1174,6 +1175,7 @@ impl StatementReturn {
     pub fn unwrap(self: Self) -> Value {
         match self {
             Self::Return(v) => v,
+            Self::Eval(v) => v,
             _ => panic!("unwrap failed")
         }
     }
@@ -1372,30 +1374,46 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
             }
         },
         ast::Stmt::Block { statements } => {
-            state.stack.new_frame();
+            match statements.as_slice() {
+                [rest @ .., last] => {
+                    
+                    state.stack.new_frame();
 
-            for stmt in statements.iter() {
-                let ret = run_statement(state, stmt, program);
-                match ret {
-                    Err(e) => {
-                        return Err(e)
-                    },
-                    Ok(StatementReturn::Return(v)) => {
-                        return Ok(StatementReturn::Return(v))
-                    },
-                    Ok(_) => {}
-                };
+                    for stmt in rest.iter() {
+                        let ret = run_statement(state, stmt, program);
+                        match ret {
+                            Err(e) => {
+                                return Err(e)
+                            },
+                            Ok(StatementReturn::Return(v)) => {
+                                state.stack.drop_frame();                                
+                                return Ok(StatementReturn::Return(v)) // we *return* a value
+                            },
+                            Ok(_) => {}
+                        };
+                    }
+
+                    let ret = run_statement(state, last, program);
+                    match ret {
+                        Err(e) => {
+                            return Err(e)
+                        },
+                        Ok(StatementReturn::Return(v)) | Ok(StatementReturn::Eval(v)) => {
+                            state.stack.drop_frame();                                
+                            return Ok(StatementReturn::Return(v)) // we *return* a value
+                        },
+                        Ok(_) => {}
+                    }
+                },
+                [] => return Ok(StatementReturn::None)
             }
-
-            state.stack.drop_frame();
         },
         ast::Stmt::Expression { expr: expression } => {
-            // Behave like return statement
             let value = match eval_expression(state, expression, program)?{
                 Ok(value) => value,
                 Err(value) => return Ok(StatementReturn::Return(value))
             };
-            return Ok(StatementReturn::Return(value));
+            return Ok(StatementReturn::Eval(value));
         }
     }
 
