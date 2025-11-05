@@ -9,14 +9,16 @@ pub type Ptr = usize;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Value {
+    Void,
     Int(i64),
     Bool(bool),
-    Str(Ptr),
+    String(Ptr),
     Tuple(Vec<Value>),
     List(Ptr),
     Dictionary(Ptr),
     Lambda(Ptr),
-    FunctionPtr(String)
+    FunctionPtr(String),
+    NameSpacePtr(String)
 }
 
 impl Hash for Value {
@@ -28,7 +30,7 @@ impl Hash for Value {
             Value::Int(i) => i.hash(state),
             Value::Bool(b) => b.hash(state),
             Value::Tuple(values) => values.iter().map(|v| v.hash(state)).collect(),
-            Value::Str(ptr) => ptr.hash(state), // thanks to string interning!
+            Value::String(ptr) => ptr.hash(state), // thanks to string interning!
             _ => unreachable!()
         }
     }
@@ -41,7 +43,7 @@ impl Value {
         match self {
             Value::Int(_) |
             Value::Bool(_) |
-            Value::Str(_) => true,
+            Value::String(_) => true,
             Value::Tuple(values) => values.iter().all(Value::hashable),
             _ => false
         }
@@ -49,14 +51,28 @@ impl Value {
 
     pub fn get_type_name(&self) -> &'static str {
         match self {
+            Value::Void => "void",
             Value::Int(_) => "int",
             Value::Bool(_) => "bool",
-            Value::Str(_) => "str",
+            Value::String(_) => "str",
             Value::Tuple(_) => "tuple",
             Value::List(_) => "list",
             Value::Dictionary(_) => "dict",
             Value::Lambda(_) => "lambda",
             Value::FunctionPtr(_) => "function",
+            Value::NameSpacePtr(_) => "namespace"
+        }
+    }
+
+    pub fn get_type_namespace(&self, loc: &ast::Loc) -> Result<String, InterpreterErrorMessage> {
+        match self {
+            Value::Int(_) => Ok(String::from("Int")),
+            Value::Bool(_) => Ok(String::from("Bool")),
+            Value::String(_) => Ok(String::from("String")),
+            Value::Tuple(_) => Ok(String::from("Tuple")),
+            Value::List(_) => Ok(String::from("List")),
+            Value::Dictionary(_) => Ok(String::from("Dict")),
+            _ => Err(InterpreterErrorMessage {error: InterpreterError::InvalidNamespace {}, loc: Some(loc.clone())})
         }
     }
 
@@ -128,6 +144,63 @@ impl Heap {
         self.intern_ptr_counts.insert(ptr, 1);
 
         ptr
+    }
+}
+
+pub struct DisplayValue<'a> {
+    value: &'a Value,
+    heap: &'a Heap,
+}
+
+impl<'a> fmt::Display for DisplayValue<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.value {
+            Value::Void => write!(f, "()"),
+            Value::Int(i) => write!(f, "{}", i),
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::String(ptr) => {
+                match self.heap.get(*ptr) {
+                    Some(HeapObject::Str(s)) => write!(f, "{}", s),
+                    _ => write!(f, "!!InvalidStrPtr({})!!", ptr),
+                }
+            }
+            Value::Tuple(values) => {
+                let s = values.iter()
+                    .map(|v| format!("{}", DisplayValue { value: v, heap: self.heap }))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({})", s)
+            }
+            Value::List(ptr) => {
+                 match self.heap.get(*ptr) {
+                    Some(HeapObject::List(l)) => {
+                        let s = l.iter()
+                            .map(|v| format!("{}", DisplayValue { value: v, heap: self.heap }))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        write!(f, "[{}]", s)
+                    }
+                    _ => write!(f, "!!InvalidListPtr({})!!", ptr),
+                }
+            }
+            Value::Dictionary(ptr) => {
+                match self.heap.get(*ptr) {
+                    Some(HeapObject::Dictionary(d)) => {
+                        let s = d.iter()
+                            .map(|(k, v)| format!("{}: {}", 
+                                DisplayValue { value: k, heap: self.heap }, 
+                                DisplayValue { value: v, heap: self.heap }))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        write!(f, "{{{}}}", s)
+                    }
+                    _ => write!(f, "!!InvalidDictPtr({})!!", ptr),
+                }
+            }
+            Value::Lambda(_) => write!(f, "<lambda>"),
+            Value::FunctionPtr(name) => write!(f, "<function {}>", name),
+            Value::NameSpacePtr(name) => write!(f, "<namespace {}>", name),
+        }
     }
 }
 
@@ -227,6 +300,7 @@ pub enum InterpreterError {
         op: ast::UnOp,
         operand: &'static str,
     },
+    InvalidNamespace {},
     // For type mismatches, e.g., "Expected {expected}, got {got}"
     TypeError {
         expected: String,
@@ -254,6 +328,9 @@ impl fmt::Display for InterpreterError {
             },
             InterpreterError::InvalidOperandTypesUn { op, operand } => {
                 write!(f, "Cannot apply operator '{:?}' to type '{}'", op, operand)
+            },
+            InterpreterError::InvalidNamespace {} => {
+                write!(f, "invalid namespace")
             },
             InterpreterError::TypeError { expected, got } => {
                 write!(f, "Type error: expected {}, got {}", expected, got)
@@ -283,23 +360,63 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
     match expression.expr {
         ast::Expr::Variable(ref v) => {
             match state.stack.get_value(&v) {
-                Some(value) => Ok(Ok(value)),
-                _ => {
-                    match program.functions.get(v) {
-                        Some(_) => Ok(Ok(Value::FunctionPtr(v.clone()))),
-                        _ => Err(InterpreterErrorMessage {
-                            error: InterpreterError::VariableNotFound(v.clone()),
-                            loc: Some(expression.loc.clone())
-                        })
-                    }
-                }
+                Some(value) => return Ok(Ok(value)),
+                _ => ()
             }
+
+            match program.functions.get(v) {
+                Some(_) => return Ok(Ok(Value::FunctionPtr(v.clone()))),
+                _ => ()
+            }
+
+            match v.as_str() {
+                "Int" => return Ok(Ok(Value::NameSpacePtr(String::from("Int")))),
+                "Bool" => return Ok(Ok(Value::NameSpacePtr(String::from("Bool")))),
+                "String" => return Ok(Ok(Value::NameSpacePtr(String::from("String")))),
+                "Tuple" => return Ok(Ok(Value::NameSpacePtr(String::from("Tuple")))),
+                "List" => return Ok(Ok(Value::NameSpacePtr(String::from("List")))),
+                "Dict" => return Ok(Ok(Value::NameSpacePtr(String::from("Dict")))),
+                _ => ()
+            }
+
+            match v.as_str() {
+                "int" => return Ok(Ok(Value::FunctionPtr(String::from("int")))),
+                "bool" => return Ok(Ok(Value::FunctionPtr(String::from("bool")))),
+                "str" => return Ok(Ok(Value::FunctionPtr(String::from("str")))),
+                "tuple" => return Ok(Ok(Value::FunctionPtr(String::from("tuple")))),
+                "list" => return Ok(Ok(Value::FunctionPtr(String::from("list")))),
+                "dict" => return Ok(Ok(Value::FunctionPtr(String::from("dict")))),
+
+                "len" => return Ok(Ok(Value::FunctionPtr(String::from("len")))),
+                "print" => return Ok(Ok(Value::FunctionPtr(String::from("print")))),
+
+                _ => ()
+            }
+
+            Err(InterpreterErrorMessage {
+                error: InterpreterError::VariableNotFound(v.clone()),
+                loc: Some(expression.loc.clone())
+            })
+        },
+        ast::Expr::DotAccess(ref e, ref v) => {
+            let value = match eval_expression(state, &e, program)? {
+                Ok(value) => value,
+                Err(value) => return Ok(Err(value))
+            };
+
+            let namespace = match value {
+                Value::NameSpacePtr(s) => s,
+                x => Value::get_type_namespace(&x, &e.loc)?
+            };
+
+            // todo: accesses
+            Ok(Ok(Value::FunctionPtr(format!("{}.{}", namespace, v))))
         },
         ast::Expr::Int(ref i) => Ok(Ok(Value::Int(*i))),
         ast::Expr::Bool(ref b) => Ok(Ok(Value::Bool(*b))),
         ast::Expr::Str(ref s) => {
             let ptr = state.heap.intern_string(String::from(s));
-            Ok(Ok(Value::Str(ptr)))
+            Ok(Ok(Value::String(ptr)))
         },
         ast::Expr::Tuple(ref values) => {
             let values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
@@ -642,13 +759,13 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             let index = indexer_value as usize;
 
             match original_indexed_value {
-                Value::Str(ptr) => {
+                Value::String(ptr) => {
                     match state.heap.get(ptr) {
                         Some(HeapObject::Str(str)) => {
                             let char_val = str.chars().nth(index).unwrap(); 
                             let char_str = char_val.to_string();
                             let new_ptr = state.heap.alloc(HeapObject::Str(char_str));
-                            Ok(Ok(Value::Str(new_ptr)))
+                            Ok(Ok(Value::String(new_ptr)))
                         },
                         _ => unreachable!() 
                     }
@@ -717,7 +834,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
 fn get_indexed_length(state: &mut State, original_indexed_value: &Value, indexed: &ast::LocExpr) -> Result<usize, InterpreterErrorMessage> {
     match &original_indexed_value {
-        Value::Str(ptr) => {
+        Value::String(ptr) => {
             match state.heap.get(*ptr) {
                 Some(HeapObject::Str(str)) => Ok(str.chars().count()),
                 _ => {
@@ -762,10 +879,7 @@ fn call_function(
 ) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
     let function = match program.functions.get(function_name) {
         Some(f) => f,
-        _ => return Err(InterpreterErrorMessage {
-                error: InterpreterError::FunctionNotFound(function_name.to_string()),
-                loc: Some(loc.clone())
-            })
+        _ => return call_builtin(state, function_name, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)
     };
 
     let argument_values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
@@ -839,7 +953,7 @@ fn call_function(
 
                     for (key, value) in index_ref.iter() {
                         match key.clone() {
-                            Value::Str(ptr) => {
+                            Value::String(ptr) => {
                                 let s = match state.heap.get(ptr) {
                                     Some(HeapObject::Str(s)) => s,
                                     _ => return Err(InterpreterErrorMessage {
@@ -926,7 +1040,7 @@ fn call_function(
                 match &function.contract.keyword_variadic_argument {
                     Some(_) => {
                         let ptr = state.heap.alloc(HeapObject::Str(String::from(key)));
-                        keyword_variadic_arguments.insert(Value::Str(ptr), value);
+                        keyword_variadic_arguments.insert(Value::String(ptr), value);
                     }
                     _ => match arg {
                         Some(arg) => {
@@ -979,6 +1093,74 @@ fn call_function(
         Err(e) => return Err(e)
     }
 }
+
+
+fn call_builtin(
+    state: &mut State,
+    function_name: &str,
+    loc: &ast::Loc,
+    positional_arguments: &Vec<ast::CallArgument>,
+    variadic_argument: &Option<ast::CallArgument>,
+    keyword_arguments: &Vec<ast::CallKeywordArgument>,
+    keyword_variadic_argument: &Option<ast::CallArgument>,
+    program: &ast::Program
+) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
+
+    match function_name {
+        "int" => todo!(),
+        "bool" => todo!(),
+        "str" => todo!(),
+        "tuple" => todo!(),
+        "list" => todo!(),
+        "dict" => todo!(),
+
+        "print" => {
+            let output: Result<Result<Vec<String>, Value>, InterpreterErrorMessage> = positional_arguments.into_iter()
+                .map(|v| {
+                    match eval_expression(state, &*v.expr, program) {
+                        Ok(Ok(v)) => Ok(Ok(format!("{}", DisplayValue {heap: &state.heap, value: &v}))),
+                        Ok(Err(v)) => Ok(Err(v)),
+                        Err(e) => Err(e)
+                    }
+                }).collect();
+
+            let output = match output? {
+                Ok(o) => o,
+                Err(v) => return Ok(Err(v))
+            };
+            println!("{}", output.join(" "));
+            return Ok(Ok(Value::Void))
+        },
+        "len" => todo!(),
+
+        "String.len" => todo!(),
+        "Tuple.len" => todo!(),
+        "List.len" => todo!(),
+        "Dict.len" => todo!(),
+
+        "String.clone" => todo!(),
+        "Tuple.clone" => todo!(),
+        "List.clone" => todo!(),
+        "Dict.clone" => todo!(),
+
+        "List.push" => todo!(),
+        "List.pop" => todo!(),
+
+        "Dict.keys" => todo!(),
+        "Dict.values" => todo!(),
+        "Dict.items" => todo!(),
+
+        _ => ()
+    }
+
+
+
+    return Err(InterpreterErrorMessage {
+                error: InterpreterError::FunctionNotFound(function_name.to_string()),
+                loc: Some(loc.clone())
+            })
+}
+
 
 
 enum StatementReturn {
@@ -1074,7 +1256,7 @@ pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Prog
                     let index = indexer_value as usize;
 
                     match original_indexed_value {
-                        Value::Str(_) => {
+                        Value::String(_) => {
                              return Err(InterpreterErrorMessage {
                                 error: InterpreterError::ImmutabilityError("Strings are immutable".to_string()),
                                 loc: Some(target.loc.clone())

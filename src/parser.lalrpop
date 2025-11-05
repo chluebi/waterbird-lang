@@ -271,6 +271,7 @@ Statement: parse_ast::LocStmt = {
             loc: start..end
         }
     },
+    
 
     <start: @L> <t:Expression> "+=" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
@@ -414,6 +415,12 @@ Expression: parse_ast::LocExpr = {
     Term,
     ExprBlock,
     #[precedence(level="1")] #[assoc(side="left")]
+    <start: @L> <e:Expression> "." <i:Ident>  <end: @R> => {
+        return parse_ast::LocExpr {
+            expr: parse_ast::Expr::DotAccess(Box::new(e), i),
+            loc: start..end
+        };
+    },
     <start: @L> "(" <e:Expression> "," <elts: CommaSeperatedExpressions> ")" <end: @R> => {
         let mut elts = elts;
         elts.insert(0, e);
@@ -657,6 +664,7 @@ match {
     "{",
     "}",
     ",",
+    ".",
 
     "**",
 

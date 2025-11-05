@@ -193,6 +193,7 @@ pub struct LambdaArgument {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Variable(String),
+    DotAccess(Box<LocExpr>, String),
     Int(i64),
     Bool(bool),
     Str(String),

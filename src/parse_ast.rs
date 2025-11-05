@@ -221,6 +221,7 @@ impl LambdaArgument {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Variable(String),
+    DotAccess(Box<LocExpr>, String),
     Int(i64),
     Bool(bool),
     Str(String),
@@ -258,6 +259,7 @@ impl Expr {
     fn preprocess(e: Self) -> Result<ast::Expr, PreprocessingErrorMessage> {
         match e {
             Expr::Variable(s) => Ok(ast::Expr::Variable(s)),
+            Expr::DotAccess(e, v) => Ok(ast::Expr::DotAccess(Box::new(LocExpr::preprocess(*e)?), v)),
             Expr::Int(i) => Ok(ast::Expr::Int(i)),
             Expr::Bool(b) => Ok(ast::Expr::Bool(b)),
             Expr::Str(s) => Ok(ast::Expr::Str(s)),
