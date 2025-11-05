@@ -119,7 +119,6 @@ Statements: Vec<parse_ast::LocStmt> = {
     <cf:ControlFlow> => cf,
     <block:BlockStatement> => vec![block],
     <stmt:Statement> => vec![stmt],
-    <finalexpr:FinalExpression> => vec![finalexpr],
     <stmt:Statement> ";" <stmts:Statements> => {
         let mut s = stmts;
         s.insert(0, stmt);
@@ -271,24 +270,9 @@ Statement: parse_ast::LocStmt = {
             loc: start..end
         }
     },
-    
 
-    <start: @L> <t:Expression> "+=" <e:Expression> <end: @R> => {
-        parse_ast::LocStmt {
-            stmt: parse_ast::Stmt::Assignment {
-                target: t.clone(),
-                expr: parse_ast::LocExpr {
-                    expr: parse_ast::Expr::BinOp {
-                        op: parse_ast::BinOp::Add,
-                        left: Box::new(t),
-                        right: Box::new(e)
-                    },
-                    loc: start..end
-                }
-            },
-            loc: start..end
-        }
-    },
+    <fe:FinalExpression> => fe,
+
     <start: @L> <t:Expression> "-=" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Assignment {
