@@ -151,6 +151,17 @@ impl Heap {
 pub struct DisplayValue<'a> {
     value: &'a Value,
     heap: &'a Heap,
+    is_contained: bool, 
+}
+
+impl<'a> DisplayValue<'a> {
+    fn contained_display(&self, value: &'a Value) -> DisplayValue<'a> {
+        DisplayValue { 
+            value, 
+            heap: self.heap, 
+            is_contained: true 
+        }
+    }
 }
 
 impl<'a> fmt::Display for DisplayValue<'a> {
@@ -161,13 +172,19 @@ impl<'a> fmt::Display for DisplayValue<'a> {
             Value::Bool(b) => write!(f, "{}", b),
             Value::String(ptr) => {
                 match self.heap.get(*ptr) {
-                    Some(HeapObject::Str(s)) => write!(f, "{}", s),
+                    Some(HeapObject::Str(s)) => {
+                        if self.is_contained {
+                            write!(f, "\"{}\"", s) 
+                        } else {
+                            write!(f, "{}", s)
+                        }
+                    }
                     _ => write!(f, "!!InvalidStrPtr({})!!", ptr),
                 }
             }
             Value::Tuple(values) => {
                 let s = values.iter()
-                    .map(|v| format!("{}", DisplayValue { value: v, heap: self.heap }))
+                    .map(|v| format!("{}", self.contained_display(v))) 
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(f, "({})", s)
@@ -176,7 +193,7 @@ impl<'a> fmt::Display for DisplayValue<'a> {
                  match self.heap.get(*ptr) {
                     Some(HeapObject::List(l)) => {
                         let s = l.iter()
-                            .map(|v| format!("{}", DisplayValue { value: v, heap: self.heap }))
+                            .map(|v| format!("{}", self.contained_display(v)))
                             .collect::<Vec<_>>()
                             .join(", ");
                         write!(f, "[{}]", s)
@@ -189,8 +206,8 @@ impl<'a> fmt::Display for DisplayValue<'a> {
                     Some(HeapObject::Dictionary(d)) => {
                         let s = d.iter()
                             .map(|(k, v)| format!("{}: {}", 
-                                DisplayValue { value: k, heap: self.heap }, 
-                                DisplayValue { value: v, heap: self.heap }))
+                                self.contained_display(k), 
+                                self.contained_display(v)))
                             .collect::<Vec<_>>()
                             .join(", ");
                         write!(f, "{{{}}}", s)
@@ -1298,7 +1315,7 @@ fn call_builtin(
             } else {
                 // Case 2: str(x)
                 let value_to_convert = &values[0];
-                DisplayValue { heap: &state.heap, value: value_to_convert }.to_string()
+                DisplayValue { heap: &state.heap, value: value_to_convert, is_contained: false }.to_string()
             };
 
             let ptr = state.heap.intern_string(result_string);
@@ -1486,7 +1503,7 @@ fn call_builtin(
                 _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected")), loc: Some(loc.clone())})
             };
 
-            println!("{}", values.iter().map(|x| format!("{}", DisplayValue {heap: &state.heap, value: x})).collect::<Vec<String>>().join(" "));
+            println!("{}", values.iter().map(|x| format!("{}", DisplayValue {heap: &state.heap, value: x, is_contained: false})).collect::<Vec<String>>().join(" "));
             return Ok(Ok(Value::Void))
         },
         "len" => todo!(),
