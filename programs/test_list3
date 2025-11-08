@@ -1,0 +1,45 @@
+
+mmult(A, B) {
+    res = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+
+    i = 0;
+    while (i < len(A)) {
+        j = 0;
+        while (j < len(B)) {
+            k = 0;
+            while (k < len(A[i])) {
+                res[i][j] += A[i][k] * B[k][j];
+                k++;
+            }
+            j++;
+        }
+        i++;
+    }
+
+    return res;
+}
+
+eq(A, B) {
+    res = true;
+
+    i = 0;
+    while (i < len(A)) {
+        j = 0;
+        while (j < len(A[i])) {
+            res = res && (A[i][j] == B[i][j]);
+            j++;
+        }
+        i++;
+    }
+
+    return res;
+}
+
+main() {
+    M1 = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    M2 = [[10, 11, 12], [13, 14, 15], [16, 17, 18]];
+
+    M3 = mmult(M1, M2);
+
+    return eq(M3, [[84, 90, 96], [201, 216, 231], [318, 342, 366]]);
+}

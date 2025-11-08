@@ -102,8 +102,8 @@ pub fn run(path: String) -> () {
     println!("{:?}", program);
 
 
-    match interpreter::interpret(&program) {
-        Ok(v) => println!("Program Executed with result {:?}", v),
+    match interpreter::interpret_with_state(&program) {
+        Ok((v, s)) => println!("Program Executed with result {}", interpreter::DisplayValue::new(&v, &s.heap)),
         Err(e) => {
             match e.loc.clone() {
                 Some(range) => {

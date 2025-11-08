@@ -1,0 +1,18 @@
+
+main() {
+    l = [];
+    i = 0;
+    while (i <= 100) {
+        l.push(i);
+        i++;
+    }
+
+    s = 0;
+    i = 0;
+    while (i <= 100) {
+        s += l[i];
+        i++;
+    }
+
+    return s;
+}

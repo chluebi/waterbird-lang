@@ -273,6 +273,22 @@ Statement: parse_ast::LocStmt = {
 
     <fe:FinalExpression> => fe,
 
+    <start: @L> <t:Expression> "+=" <e:Expression> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Assignment {
+                target: t.clone(),
+                expr: parse_ast::LocExpr {
+                    expr: parse_ast::Expr::BinOp {
+                        op: parse_ast::BinOp::Add,
+                        left: Box::new(t),
+                        right: Box::new(e)
+                    },
+                    loc: start..end
+                }
+            },
+            loc: start..end
+        }
+    },
     <start: @L> <t:Expression> "-=" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Assignment {

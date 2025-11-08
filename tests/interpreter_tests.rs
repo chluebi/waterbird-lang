@@ -15,6 +15,10 @@ fn tests_basic() {
         ("programs/test_int2", Ok(interpreter::Value::Int(13))),
         ("programs/test_if", Ok(interpreter::Value::Bool(true))),
         ("programs/test_if2", Ok(interpreter::Value::Bool(true))),
+        ("programs/test_list", Ok(interpreter::Value::Int(3))),
+        ("programs/test_list2", Ok(interpreter::Value::Int(5050))),
+        ("programs/test_list3", Ok(interpreter::Value::Bool(true))),
+        ("programs/test_blocks", Ok(interpreter::Value::Int(4))),
     ];
 
     for (path, res) in programs {
