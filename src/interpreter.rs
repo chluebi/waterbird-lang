@@ -1140,6 +1140,112 @@ fn call_function(
     }
 }
 
+fn get_len(value: &Value, heap: &Heap, arg_loc: &ast::Loc) -> Result<i64, InterpreterErrorMessage> {
+    match value {
+        Value::String(ptr) => {
+            match heap.get(*ptr) {
+                Some(HeapObject::Str(s)) => Ok(s.chars().count() as i64),
+                _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap")), loc: Some(arg_loc.clone())})
+            }
+        },
+        Value::Tuple(v) => Ok(v.len() as i64),
+        Value::List(ptr) => {
+            match heap.get(*ptr) {
+                Some(HeapObject::List(l)) => Ok(l.len() as i64),
+                 _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap")), loc: Some(arg_loc.clone())})
+            }
+        },
+        Value::Dictionary(ptr) => {
+             match heap.get(*ptr) {
+                Some(HeapObject::Dictionary(d)) => Ok(d.len() as i64),
+                 _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap")), loc: Some(arg_loc.clone())})
+            }
+        },
+        _ => Err(InterpreterErrorMessage {
+            error: InterpreterError::TypeError {
+                expected: "string, tuple, list, or dict".to_string(),
+                got: value.get_type_name()
+            },
+            loc: Some(arg_loc.clone())
+        })
+    }
+}
+
+fn deep_clone_value(state: &mut State, value: &Value) -> Result<Value, InterpreterErrorMessage> {
+    match value {
+        Value::Void |
+        Value::Int(_) |
+        Value::Bool(_) |
+        Value::FunctionPtr(_) |
+        Value::NameSpacePtr(_) => Ok(value.clone()),
+
+        Value::String(ptr) => {
+            let s = match state.heap.get(*ptr) {
+                Some(HeapObject::Str(s)) => s.clone(),
+                _ => return Err(InterpreterErrorMessage {
+                    error: InterpreterError::InternalError("Expected String Heap Object".to_string()),
+                    loc: None // We don't have location context here
+                })
+            };
+            let new_ptr = state.heap.intern_string(s);
+            Ok(Value::String(new_ptr))
+        },
+
+        Value::Tuple(values) => {
+            let new_values = values.iter()
+                .map(|v| deep_clone_value(state, v))
+                .collect::<Result<Vec<Value>, _>>()?;
+            Ok(Value::Tuple(new_values))
+        },
+
+        Value::List(ptr) => {
+            let list = match state.heap.get(*ptr) {
+                Some(HeapObject::List(l)) => l.clone(), // Clone the Vec (shallow)
+                _ => return Err(InterpreterErrorMessage {
+                    error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
+                    loc: None
+                })
+            };
+            let new_list = list.iter()
+                .map(|v| deep_clone_value(state, v))
+                .collect::<Result<Vec<Value>, _>>()?;
+            
+            let new_ptr = state.heap.alloc(HeapObject::List(new_list));
+            Ok(Value::List(new_ptr))
+        },
+
+        Value::Dictionary(ptr) => {
+            let dict = match state.heap.get(*ptr) {
+                Some(HeapObject::Dictionary(d)) => d.clone(), // Clone the HashMap (shallow)
+                _ => return Err(InterpreterErrorMessage {
+                    error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
+                    loc: None
+                })
+            };
+            let mut new_dict = HashMap::new();
+            for (k, v) in dict.iter() {
+                let new_k = deep_clone_value(state, k)?;
+                let new_v = deep_clone_value(state, v)?;
+                new_dict.insert(new_k, new_v);
+            }
+
+            let new_ptr = state.heap.alloc(HeapObject::Dictionary(new_dict));
+            Ok(Value::Dictionary(new_ptr))
+        },
+
+        Value::Lambda(ptr) => {
+            let lambda_obj = match state.heap.get(*ptr) {
+                Some(HeapObject::Lambda {..}) => state.heap.get(*ptr).unwrap().clone(),
+                _ => return Err(InterpreterErrorMessage {
+                    error: InterpreterError::InternalError("Expected Lambda Heap Object".to_string()),
+                    loc: None
+                })
+            };
+            let new_ptr = state.heap.alloc(lambda_obj);
+            Ok(Value::Lambda(new_ptr))
+        }
+    }
+}
 
 fn call_builtin(
     state: &mut State,
@@ -1506,12 +1612,62 @@ fn call_builtin(
             println!("{}", values.iter().map(|x| format!("{}", DisplayValue {heap: &state.heap, value: x, is_contained: false})).collect::<Vec<String>>().join(" "));
             return Ok(Ok(Value::Void))
         },
-        "len" => todo!(),
+        "len" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![ast::Argument {name: String::from("obj"), arg_type: None, loc: 0..0}],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let value = args_map.get("obj").unwrap();
+            let arg_loc = &positional_arguments.get(0).unwrap().loc;
+
+            return match get_len(value, &state.heap, arg_loc) {
+                Ok(len) => Ok(Ok(Value::Int(len))),
+                Err(e) => Err(e)
+            };
+        },
 
         "String.len" => todo!(),
         "Tuple.len" => todo!(),
         "List.len" => todo!(),
         "Dict.len" => todo!(),
+
+        "clone" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![ast::Argument {name: String::from("obj"), arg_type: None, loc: 0..0}],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let value = args_map.get("obj").unwrap();
+            
+            return match deep_clone_value(state, value) {
+                Ok(cloned_value) => Ok(Ok(cloned_value)),
+                Err(mut e) => {
+                    if e.loc.is_none() {
+                        e.loc = Some(positional_arguments.get(0).unwrap().loc.clone());
+                    }
+                    Err(e)
+                }
+            }
+        }
 
         "String.clone" => todo!(),
         "Tuple.clone" => todo!(),

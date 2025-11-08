@@ -16,5 +16,5 @@ main() {
         s = "abc";
     }
 
-    return {"a": false, "abc": true}[s];
+    return len(s) == 3;
 }
