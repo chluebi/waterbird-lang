@@ -16,5 +16,5 @@ main() {
         s = "abc";
     }
 
-    return len(s) == 3;
+    return s.len() == 3;
 }

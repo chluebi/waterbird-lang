@@ -634,90 +634,130 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             ref keyword_arguments,
             ref keyword_variadic_argument 
         } => {
-            let func_value = match eval_expression(state, function, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(Err(value))
-            };
+            if let ast::Expr::DotAccess(ref base_expr, ref method_name) = function.expr {
+                let self_value = match eval_expression(state, base_expr, program)? {
+                    Ok(value) => value,
+                    Err(value) => return Ok(Err(value))
+                };
 
-            match func_value {
-                Value::FunctionPtr(ptr) => 
-                    call_function(
-                        state,
-                        &ptr,
-                        &expression.loc,
-                        positional_arguments,
-                        variadic_argument,
-                        keyword_arguments,
-                        keyword_variadic_argument,
-                        program
-                    ),
-                Value::Lambda(ptr) => {
-                    let (arguments, expr) = match state.heap.get(ptr) {
-                        Some(HeapObject::Lambda { arguments, expr }) => {
-                            (arguments.clone(), expr.clone())
-                        },
-                        _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InternalError("Expected Lambda Heap Object".to_string()),
-                            loc: Some(function.loc.clone())
-                        })
-                    };
+                let (function_name, new_positional_args) = match self_value {
+                    Value::NameSpacePtr(namespace) => {
+                        // This is a STATIC call, e.g., String.len("abc")
+                        let function_name = format!("{}.{}", namespace, method_name);
+                        (function_name, positional_arguments.clone())
+                    },
+                    _ => {
+                        // This is an INSTANCE call, e.g., s.len()
+                        let namespace = Value::get_type_namespace(&self_value, &base_expr.loc)?;
+                        let function_name = format!("{}.{}", namespace, method_name);
 
-                    let argument_values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
-                        = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expr, program)).collect();
-
-
-                    let argument_values: Vec<Value> = match argument_values? {
-                        Ok(values) => values,
-                        Err(value) => return Ok(Err(value))
-                    };
-
-                    if argument_values.len() < arguments.len() {
-                        let pos = argument_values.len();
-                        let missing_arg = arguments.get(pos).unwrap();
-                        return Err(InterpreterErrorMessage {
-                            error: InterpreterError::ArgumentError(format!("Missing argument: '{}'", missing_arg.name)),
-                            loc: Some(missing_arg.loc.clone())
-                        })
-                    }
-
-                    if argument_values.len() > arguments.len() {
-                        let pos = arguments.len();
+                        let self_arg = ast::CallArgument {
+                            expr: base_expr.clone(),
+                            loc: base_expr.loc.clone()
+                        };
                         
-                        let extra_arg_expression = match pos < positional_arguments.len() {
-                            true => positional_arguments.get(pos).unwrap(),
-                            false => &variadic_argument.clone().unwrap()
+                        let mut new_args = positional_arguments.clone();
+                        new_args.insert(0, self_arg); 
+                        (function_name, new_args)
+                    }
+                };
+
+                return call_function(
+                    state,
+                    &function_name,
+                    &expression.loc,
+                    &new_positional_args, 
+                    variadic_argument,
+                    keyword_arguments,
+                    keyword_variadic_argument,
+                    program
+                );
+
+            } else {
+                // This is a NORMAL function call, e.g., print(x) or a lambda call
+                let func_value = match eval_expression(state, function, program)? {
+                    Ok(value) => value,
+                    Err(value) => return Ok(Err(value))
+                };
+
+                match func_value {
+                    Value::FunctionPtr(ptr) => 
+                        call_function(
+                            state,
+                            &ptr,
+                            &expression.loc,
+                            positional_arguments,
+                            variadic_argument,
+                            keyword_arguments,
+                            keyword_variadic_argument,
+                            program
+                        ),
+                    Value::Lambda(ptr) => {
+                        let (arguments, expr) = match state.heap.get(ptr) {
+                            Some(HeapObject::Lambda { arguments, expr }) => {
+                                (arguments.clone(), expr.clone())
+                            },
+                            _ => return Err(InterpreterErrorMessage {
+                                error: InterpreterError::InternalError("Expected Lambda Heap Object".to_string()),
+                                loc: Some(function.loc.clone())
+                            })
                         };
 
-                        return Err(InterpreterErrorMessage {
-                            error: InterpreterError::ArgumentError("Unexpected positional argument".to_string()),
-                            loc: Some(extra_arg_expression.loc.clone())
+                        let argument_values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
+                            = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expr, program)).collect();
+
+
+                        let argument_values: Vec<Value> = match argument_values? {
+                            Ok(values) => values,
+                            Err(value) => return Ok(Err(value))
+                        };
+
+                        if argument_values.len() < arguments.len() {
+                            let pos = argument_values.len();
+                            let missing_arg = arguments.get(pos).unwrap();
+                            return Err(InterpreterErrorMessage {
+                                error: InterpreterError::ArgumentError(format!("Missing argument: '{}'", missing_arg.name)),
+                                loc: Some(missing_arg.loc.clone())
+                            })
+                        }
+
+                        if argument_values.len() > arguments.len() {
+                            let pos = arguments.len();
+                            
+                            let extra_arg_expression = match pos < positional_arguments.len() {
+                                true => positional_arguments.get(pos).unwrap(),
+                                false => &variadic_argument.clone().unwrap()
+                            };
+
+                            return Err(InterpreterErrorMessage {
+                                error: InterpreterError::ArgumentError("Unexpected positional argument".to_string()),
+                                loc: Some(extra_arg_expression.loc.clone())
+                            })
+                        }
+
+                        let new_values: HashMap<String, Value> = arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
+
+                        state.stack.new_function_context();
+
+                        let _ = new_values.into_iter().for_each(|(n,v)| {state.stack.update_variable(&n, v);});
+                        
+                        let value: Result<Result<Value, Value>, InterpreterErrorMessage> = match eval_expression(state, &expr, program) {
+                            Ok(Ok(value)) | Ok(Err(value)) => Ok(Ok(value)),
+                            Err(value) => return Err(value)
+                        };
+
+                        state.stack.drop_function_context();
+
+                        return value;
+                    },
+                    _ => Err(InterpreterErrorMessage {
+                            error: InterpreterError::TypeError { 
+                                expected: "callable (function or lambda)".to_string(), 
+                                got: func_value.get_type_name()
+                            },
+                            loc: Some(function.loc.clone())
                         })
-                    }
-
-                    let new_values: HashMap<String, Value> = arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
-
-                    state.stack.new_function_context();
-
-                    let _ = new_values.into_iter().for_each(|(n,v)| {state.stack.update_variable(&n, v);});
-                    
-                    // we treat lambdas as their own functions this effectively means if they get a return statement in their expression
-                    // we just return from the lambda
-                    let value: Result<Result<Value, Value>, InterpreterErrorMessage> = match eval_expression(state, &expr, program) {
-                        Ok(Ok(value)) | Ok(Err(value)) => Ok(Ok(value)),
-                        Err(value) => return Err(value)
-                    };
-
-                    state.stack.drop_function_context();
-
-                    return value;
-                },
-                _ => Err(InterpreterErrorMessage {
-                        error: InterpreterError::TypeError { 
-                            expected: "callable (function or lambda)".to_string(), 
-                            got: func_value.get_type_name()
-                        },
-                        loc: Some(function.loc.clone())
-                    })
+                }
             }
         },
         ast::Expr::Indexing { ref indexed, ref indexer } => {
@@ -1612,7 +1652,7 @@ fn call_builtin(
             println!("{}", values.iter().map(|x| format!("{}", DisplayValue {heap: &state.heap, value: x, is_contained: false})).collect::<Vec<String>>().join(" "));
             return Ok(Ok(Value::Void))
         },
-        "len" => {
+        "len" | "String.len" | "Tuple.len" | "List.len" | "Dict.len" => {
             let contract = ast::FunctionPrototype {
                 positional_arguments: vec![ast::Argument {name: String::from("obj"), arg_type: None, loc: 0..0}],
                 variadic_argument: None,
@@ -1635,11 +1675,6 @@ fn call_builtin(
                 Err(e) => Err(e)
             };
         },
-
-        "String.len" => todo!(),
-        "Tuple.len" => todo!(),
-        "List.len" => todo!(),
-        "Dict.len" => todo!(),
 
         "clone" => {
             let contract = ast::FunctionPrototype {
