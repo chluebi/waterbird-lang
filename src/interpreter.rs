@@ -372,7 +372,7 @@ impl fmt::Display for InterpreterError {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct InterpreterErrorMessage {
     pub error: InterpreterError,
     pub loc: Option<ast::Loc>

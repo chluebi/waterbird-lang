@@ -3,5 +3,5 @@ lalrpop_mod!(pub parser); // synthesized by LALRPOP
 
 mod parse_ast;
 mod ast;
-mod interpreter;
-mod runner;
+pub mod interpreter;
+pub mod runner;

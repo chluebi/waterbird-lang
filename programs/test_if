@@ -1,0 +1,7 @@
+main() {
+    i = 10;
+    if (i > 9) {
+        return true;
+    }
+    return false;
+}

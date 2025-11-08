@@ -1,0 +1,20 @@
+main() {
+    i = 5;
+    s = "a";
+
+    if (i == 0) {
+        
+    } else if (i == 1) {
+
+    } else if (i == 2) {
+
+    } else if (i == 3) {
+
+    } else if (i == 4) {
+
+    } else if (i == 5) {
+        s = "abc";
+    }
+
+    return {"a": false, "abc": true}[s];
+}
