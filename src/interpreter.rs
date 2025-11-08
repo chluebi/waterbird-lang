@@ -512,6 +512,50 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             
         },
         ast::Expr::BinOp { ref op, ref left, ref right } => {
+            match op {
+                ast::BinOp::And | ast::BinOp::Or => {
+                    let left_value = match eval_expression(state, &left, program)? {
+                        Ok(value) => value,
+                        Err(value) => return Ok(Err(value))
+                    };
+
+                    let left_bool = match left_value {
+                        Value::Bool(b) => b,
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::TypeError {
+                                expected: "bool".to_string(),
+                                got: left_value.get_type_name()
+                            },
+                            loc: Some(left.loc.clone())
+                        })
+                    };
+
+                    if *op == ast::BinOp::And && !left_bool {
+                        return Ok(Ok(Value::Bool(false)));
+                    }
+                    if *op == ast::BinOp::Or && left_bool {
+                        return Ok(Ok(Value::Bool(true)));
+                    }
+
+                    let right_value = match eval_expression(state, &right, program)? {
+                        Ok(value) => value,
+                        Err(value) => return Ok(Err(value))
+                    };
+
+                    match right_value {
+                        Value::Bool(_) => return Ok(Ok(right_value)),
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::TypeError {
+                                expected: "bool".to_string(),
+                                got: right_value.get_type_name()
+                            },
+                            loc: Some(right.loc.clone())
+                        })
+                    }
+                },
+                _ => ()
+            }
+
             let left_value = match eval_expression(state, &left, program)? {
                 Ok(value) => value,
                 Err(value) => return Ok(Err(value))
@@ -548,8 +592,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     match op {
                         ast::BinOp::Eq => return Ok(Ok(Value::Bool(left_value == right_value))),
                         ast::BinOp::Neq => return Ok(Ok(Value::Bool(left_value != right_value))),
-                        ast::BinOp::And => return Ok(Ok(Value::Bool(left_value && right_value))),
-                        ast::BinOp::Or => return Ok(Ok(Value::Bool(left_value || right_value))),
+                        // And/Or are handled in the custom short-circuiting logic
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "bool", right: "bool" },
                             loc: Some(expression.loc.clone())
