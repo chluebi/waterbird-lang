@@ -19,6 +19,7 @@ fn tests_basic() {
         ("programs/test_list2", Ok(interpreter::Value::Int(5050))),
         ("programs/test_list3", Ok(interpreter::Value::Bool(true))),
         ("programs/test_blocks", Ok(interpreter::Value::Int(4))),
+         ("programs/test_precedence", Ok(interpreter::Value::Bool(true))),
     ];
 
     for (path, res) in programs {

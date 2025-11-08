@@ -508,24 +508,6 @@ Expression: parse_ast::LocExpr = {
         loc: start..end
     },
     #[precedence(level="7")] #[assoc(side="left")]
-    <start: @L> <l:Expression> "&&" <r:Expression> <end: @R> => parse_ast::LocExpr {
-        expr: parse_ast::Expr::BinOp {
-            op: parse_ast::BinOp::And,
-            left: Box::new(l),
-            right: Box::new(r)
-        },
-        loc: start..end
-    },
-    #[precedence(level="8")] #[assoc(side="left")]
-    <start: @L> <l:Expression> "||" <r:Expression> <end: @R> => parse_ast::LocExpr {
-        expr: parse_ast::Expr::BinOp {
-            op: parse_ast::BinOp::Or,
-            left: Box::new(l),
-            right: Box::new(r)
-        },
-        loc: start..end
-    },
-    #[precedence(level="9")] #[assoc(side="left")]
     <start: @L> <l:Expression> "==" <r:Expression> <end: @R> => parse_ast::LocExpr {
         expr: parse_ast::Expr::BinOp {
             op: parse_ast::BinOp::Eq,
@@ -569,6 +551,24 @@ Expression: parse_ast::LocExpr = {
     <start: @L> <l:Expression> ">=" <r:Expression> <end: @R> => parse_ast::LocExpr {
         expr: parse_ast::Expr::BinOp {
             op: parse_ast::BinOp::Geq,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+     #[precedence(level="8")] #[assoc(side="left")]
+    <start: @L> <l:Expression> "&&" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::And,
+            left: Box::new(l),
+            right: Box::new(r)
+        },
+        loc: start..end
+    },
+    #[precedence(level="9")] #[assoc(side="left")]
+    <start: @L> <l:Expression> "||" <r:Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::BinOp {
+            op: parse_ast::BinOp::Or,
             left: Box::new(l),
             right: Box::new(r)
         },
