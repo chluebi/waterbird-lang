@@ -382,6 +382,65 @@ pub struct InterpreterErrorMessage {
     pub loc: Option<ast::Loc>
 }
 
+fn deep_equals(left: &Value, right: &Value, heap: &Heap) -> bool {
+    match (left, right) {
+        (Value::Void, Value::Void) => true,
+        (Value::Int(l), Value::Int(r)) => l == r,
+        (Value::Bool(l), Value::Bool(r)) => l == r,
+        (Value::String(l_ptr), Value::String(r_ptr)) => l_ptr == r_ptr, // Interned
+        (Value::FunctionPtr(l_name), Value::FunctionPtr(r_name)) => l_name == r_name,
+        (Value::NameSpacePtr(l_name), Value::NameSpacePtr(r_name)) => l_name == r_name,
+        (Value::Lambda(l_ptr), Value::Lambda(r_ptr)) => l_ptr == r_ptr, // Reference equality
+
+        (Value::Tuple(l_vec), Value::Tuple(r_vec)) => {
+            if l_vec.len() != r_vec.len() {
+                return false;
+            }
+            l_vec.iter().zip(r_vec.iter()).all(|(l, r)| deep_equals(l, r, heap))
+        },
+
+        (Value::List(l_ptr), Value::List(r_ptr)) => {
+            if l_ptr == r_ptr { return true; }
+
+            let l_obj = heap.get(*l_ptr);
+            let r_obj = heap.get(*r_ptr);
+
+            match (l_obj, r_obj) {
+                (Some(HeapObject::List(l_vec)), Some(HeapObject::List(r_vec))) => {
+                    if l_vec.len() != r_vec.len() {
+                        return false;
+                    }
+                    l_vec.iter().zip(r_vec.iter()).all(|(l, r)| deep_equals(l, r, heap))
+                },
+                _ => false
+            }
+        },
+
+        (Value::Dictionary(l_ptr), Value::Dictionary(r_ptr)) => {
+            if l_ptr == r_ptr { return true; } // Same object
+
+            let l_obj = heap.get(*l_ptr);
+            let r_obj = heap.get(*r_ptr);
+
+            match (l_obj, r_obj) {
+                (Some(HeapObject::Dictionary(l_map)), Some(HeapObject::Dictionary(r_map))) => {
+                    if l_map.len() != r_map.len() {
+                        return false;
+                    }
+                    
+                    l_map.iter().all(|(l_key, l_val)| {
+                        r_map.get(l_key)
+                             .map_or(false, |r_val| deep_equals(l_val, r_val, heap))
+                    })
+                },
+                _ => false
+            }
+        },
+
+        _ => false
+    }
+}
+
 // we return Ok(Ok(Value)) if we just evaluate
 // we short-circuit with Ok(Err(Value)) as this means we have a direct return value
 pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &ast::Program) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
@@ -513,6 +572,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
         },
         ast::Expr::BinOp { ref op, ref left, ref right } => {
             match op {
+                // short-circuiting
                 ast::BinOp::And | ast::BinOp::Or => {
                     let left_value = match eval_expression(state, &left, program)? {
                         Ok(value) => value,
@@ -565,11 +625,20 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 Err(value) => return Ok(Err(value))
             };
 
+            // Handle Eq and Neq using deep_equals
+            match op {
+                ast::BinOp::Eq => {
+                    return Ok(Ok(Value::Bool(deep_equals(&left_value, &right_value, &state.heap))));
+                },
+                ast::BinOp::Neq => {
+                    return Ok(Ok(Value::Bool(!deep_equals(&left_value, &right_value, &state.heap))));
+                },
+                _ => ()
+            }
+
             match (left_value.clone(), right_value.clone()) {
                 (Value::Int(left_value), Value::Int(right_value)) => {
                     match op {
-                        ast::BinOp::Eq => return Ok(Ok(Value::Bool(left_value == right_value))),
-                        ast::BinOp::Neq => return Ok(Ok(Value::Bool(left_value != right_value))),
                         ast::BinOp::Leq => return Ok(Ok(Value::Bool(left_value <= right_value))),
                         ast::BinOp::Geq => return Ok(Ok(Value::Bool(left_value >= right_value))),
                         ast::BinOp::Lt => return Ok(Ok(Value::Bool(left_value < right_value))),
@@ -583,18 +652,6 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         ast::BinOp::ShiftRightArith => return Ok(Ok(Value::Int(left_value >> right_value))),
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "int", right: "int" },
-                            loc: Some(expression.loc.clone())
-                        })
-                    }
-                },
-
-                (Value::Bool(left_value), Value::Bool(right_value)) => {
-                    match op {
-                        ast::BinOp::Eq => return Ok(Ok(Value::Bool(left_value == right_value))),
-                        ast::BinOp::Neq => return Ok(Ok(Value::Bool(left_value != right_value))),
-                        // And/Or are handled in the custom short-circuiting logic
-                        _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "bool", right: "bool" },
                             loc: Some(expression.loc.clone())
                         })
                     }
@@ -1669,8 +1726,6 @@ fn call_builtin(
             
             return Ok(Ok(Value::List(ptr)));
         },
-        "dict" => todo!(),
-
         "print" => {
             let contract = ast::FunctionPrototype {
                 positional_arguments: vec![],
@@ -1964,7 +2019,7 @@ impl StatementReturn {
     }
 }
 
-pub fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program) -> Result<StatementReturn, InterpreterErrorMessage> {
+fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program) -> Result<StatementReturn, InterpreterErrorMessage> {
     match &stmt.stmt {
         ast::Stmt::Assignment { target, expr: expression } => {
             match &target.expr {

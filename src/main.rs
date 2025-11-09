@@ -11,5 +11,5 @@ mod runner;
 
 
 pub fn main() {
-    runner::run("programs/test_shortcircuit".to_string());
+    runner::run("programs/test_list4".to_string());
 }
