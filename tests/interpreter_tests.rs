@@ -23,6 +23,7 @@ fn tests_basic() {
         ("programs/test_precedence", Ok(interpreter::Value::Bool(true))),
         ("programs/test_shortcircuit", Ok(interpreter::Value::Int(3))),
         ("programs/test_readfile", Ok(interpreter::Value::Int(10))),
+        ("programs/test_assert", Ok(interpreter::Value::Void)),
     ];
 
     for (path, res) in programs {
@@ -30,4 +31,14 @@ fn tests_basic() {
     }
 }
 
+#[test]
+fn tests_fail() {
+    let programs: Vec<&str> = vec![
+        ("programs/test_assert2"),
+    ];
+
+    for path in programs {
+        assert!(matches!(eval(path.to_string()), Err(_)));
+    }
+}
 

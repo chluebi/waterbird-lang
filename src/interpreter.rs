@@ -98,6 +98,41 @@ impl Value {
         }
     }
 
+    pub fn truthy(&self, state: &State, loc: &ast::Loc) -> Result<bool, InterpreterErrorMessage> {
+        match self {
+            Value::Bool(b) => Ok(*b),
+            Value::Int(i) => Ok(*i != 0),
+            Value::Void => Ok(false),
+            Value::String(ptr) => {
+                // Retrieve string content from the heap
+                let s = match state.heap.get(*ptr) {
+                    Some(HeapObject::Str(s)) => s,
+                    _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
+                };
+                Ok(!s.is_empty())
+            },
+            Value::Tuple(v) => Ok(!v.is_empty()),
+            Value::List(ptr) => {
+                // Retrieve list content from the heap
+                let l = match state.heap.get(*ptr) {
+                    Some(HeapObject::List(l)) => l,
+                    _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap for Value::List")), loc: Some(loc.clone())})
+                };
+                Ok(!l.is_empty())
+            },
+            Value::Dictionary(ptr) => {
+                // Retrieve dictionary content from the heap (assuming `HeapObject::Dict(d)` yields a reference with `is_empty()`)
+                let d = match state.heap.get(*ptr) {
+                    Some(HeapObject::Dictionary(d)) => d,
+                    _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap for Value::Dictionary")), loc: Some(loc.clone())})
+                };
+                Ok(!d.is_empty())
+            },
+            // Functions and Lambdas are generally truthy
+            Value::Lambda(_) | Value::FunctionPtr(_) | Value::NameSpacePtr(_) => Ok(true),
+        }
+    }
+
 }
 
 #[derive(Debug, Clone)]
@@ -360,6 +395,7 @@ pub enum InterpreterError {
     MissingReturnValue,
     BlockError(String), // For "Expected Expression at end of block"
     FileError(String), // for the read internal function
+    AssertionError(String),
     InternalError(String), // For "Expected X Heap Object" - these are interpreter bugs
 }
 
@@ -393,6 +429,7 @@ impl fmt::Display for InterpreterError {
             InterpreterError::MissingReturnValue => write!(f, "Function did not return a value"),
             InterpreterError::BlockError(msg) => write!(f, "Block error: {}", msg),
             InterpreterError::FileError(msg ) => write!(f, "File error: {}", msg),
+            InterpreterError::AssertionError(msg ) => write!(f, "Assertion error: {}", msg),
             InterpreterError::InternalError(msg) => write!(f, "Interpreter internal error: {}. This is likely a bug.", msg),
         }
     }
@@ -501,6 +538,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 "len" => return Ok(Ok(Value::FunctionPtr(String::from("len")))),
                 "print" => return Ok(Ok(Value::FunctionPtr(String::from("print")))),
                 "read" => return Ok(Ok(Value::FunctionPtr(String::from("read")))),
+                "assert" => return Ok(Ok(Value::FunctionPtr(String::from("assert")))),
 
                 _ => ()
             }
@@ -1485,38 +1523,7 @@ fn call_builtin(
                 // Case 2: bool(x)
                 let value_to_convert = &values[0];
 
-                match value_to_convert {
-                    Value::Bool(b) => Value::Bool(*b),
-                    Value::Int(i) => Value::Bool(*i != 0),
-                    Value::Void => Value::Bool(false),
-                    Value::String(ptr) => {
-                        // Retrieve string content from the heap
-                        let s = match state.heap.get(*ptr) {
-                            Some(HeapObject::Str(s)) => s,
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
-                        };
-                        Value::Bool(!s.is_empty())
-                    },
-                    Value::Tuple(v) => Value::Bool(!v.is_empty()),
-                    Value::List(ptr) => {
-                        // Retrieve list content from the heap
-                        let l = match state.heap.get(*ptr) {
-                            Some(HeapObject::List(l)) => l,
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap for Value::List")), loc: Some(loc.clone())})
-                        };
-                        Value::Bool(!l.is_empty())
-                    },
-                    Value::Dictionary(ptr) => {
-                        // Retrieve dictionary content from the heap (assuming `HeapObject::Dict(d)` yields a reference with `is_empty()`)
-                        let d = match state.heap.get(*ptr) {
-                            Some(HeapObject::Dictionary(d)) => d,
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap for Value::Dictionary")), loc: Some(loc.clone())})
-                        };
-                        Value::Bool(!d.is_empty())
-                    },
-                    // Functions and Lambdas are generally truthy
-                    Value::Lambda(_) | Value::FunctionPtr(_) | Value::NameSpacePtr(_) => Value::Bool(true),
-                }
+                Value::Bool(value_to_convert.truthy(state, loc)?)
             };
             
             return Ok(Ok(result_value));
@@ -2012,7 +2019,45 @@ fn call_builtin(
                     loc: Some(f_loc.clone())
                 })
             }
-        }
+        },
+
+        "assert" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![],
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let values = match args_map.get("args").unwrap() {
+                Value::List(ptr) => match state.heap.get(*ptr) {
+                    Some(HeapObject::List(l)) => l,
+                    _ => unreachable!()
+                },
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
+            };
+
+            if values.is_empty() {
+                return Err(InterpreterErrorMessage {error: InterpreterError::AssertionError(String::from("Assertion failed")), loc: Some(loc.clone())})
+            } else if values.len() == 1 {
+                match values[0].truthy(state, loc)? {
+                    true => return Ok(Ok(Value::Void)),
+                    false => return Err(InterpreterErrorMessage {error: InterpreterError::AssertionError(String::from("Assertion failed")), loc: Some(loc.clone())})
+                }
+            } else {
+                match values[0].truthy(state, loc)? {
+                    true => return Ok(Ok(Value::Void)),
+                    false => return Err(InterpreterErrorMessage {error: InterpreterError::AssertionError(format!("Assertion failed {}", DisplayValue::new(&values[1], &state.heap))), loc: Some(loc.clone())})
+                }
+            }
+        },
 
         _ => ()
     }
