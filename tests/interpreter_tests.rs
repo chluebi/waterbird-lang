@@ -22,6 +22,7 @@ fn tests_basic() {
         ("programs/test_blocks", Ok(interpreter::Value::Int(4))),
         ("programs/test_precedence", Ok(interpreter::Value::Bool(true))),
         ("programs/test_shortcircuit", Ok(interpreter::Value::Int(3))),
+        ("programs/test_readfile", Ok(interpreter::Value::Int(10))),
     ];
 
     for (path, res) in programs {

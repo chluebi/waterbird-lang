@@ -1,0 +1,4 @@
+
+main() {
+    return len(read("test_data/test1.txt"));
+}

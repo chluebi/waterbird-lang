@@ -1,5 +1,7 @@
 use std::collections::{HashMap};
 use std::hash::{Hash, Hasher};
+use std::fs::File;
+use std::io::{self, Read};
 use std::fmt;
 use slab::Slab;
 
@@ -357,6 +359,7 @@ pub enum InterpreterError {
     UnpackError(String), // For tuple/list unpacking
     MissingReturnValue,
     BlockError(String), // For "Expected Expression at end of block"
+    FileError(String), // for the read internal function
     InternalError(String), // For "Expected X Heap Object" - these are interpreter bugs
 }
 
@@ -389,6 +392,7 @@ impl fmt::Display for InterpreterError {
             InterpreterError::UnpackError(msg) => write!(f, "Unpack error: {}", msg),
             InterpreterError::MissingReturnValue => write!(f, "Function did not return a value"),
             InterpreterError::BlockError(msg) => write!(f, "Block error: {}", msg),
+            InterpreterError::FileError(msg ) => write!(f, "File error: {}", msg),
             InterpreterError::InternalError(msg) => write!(f, "Interpreter internal error: {}. This is likely a bug.", msg),
         }
     }
@@ -496,6 +500,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
                 "len" => return Ok(Ok(Value::FunctionPtr(String::from("len")))),
                 "print" => return Ok(Ok(Value::FunctionPtr(String::from("print")))),
+                "read" => return Ok(Ok(Value::FunctionPtr(String::from("read")))),
 
                 _ => ()
             }
@@ -1969,6 +1974,46 @@ fn call_builtin(
             }
         },
 
+        "read" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![ast::Argument {name: String::from("f"), arg_type: None, loc: 0..0}],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let f_val = args_map.get("f").unwrap();
+            let f_loc = &positional_arguments.get(0).unwrap().loc;
+
+            return match f_val {
+                Value::String(ptr) => {
+                    match state.heap.get(*ptr) {
+                        Some(HeapObject::Str(file_path)) => {
+                            match read_file(file_path) {
+                                Ok(s) => {
+                                    let ptr = state.heap.intern_string(s);
+                                    return Ok(Ok(Value::String(ptr)));
+                                }
+                                Err(e) => Err(InterpreterErrorMessage {error: InterpreterError::FileError(format!("Something went wrong reading the file: {}", e)), loc: Some(f_loc.clone())})
+                            }
+                        },
+                        _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected String Heap Object".to_string()), loc: Some(f_loc.clone())})
+                    }
+                },
+                _ => Err(InterpreterErrorMessage {
+                    error: InterpreterError::TypeError { expected: "str".to_string(), got: f_val.get_type_name() },
+                    loc: Some(f_loc.clone())
+                })
+            }
+        }
+
         _ => ()
     }
 
@@ -1980,6 +2025,12 @@ fn call_builtin(
             })
 }
 
+fn read_file(file_path: &str) -> io::Result<String> {
+    let mut file = File::open(file_path)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
+}
 
 
 enum StatementReturn {
