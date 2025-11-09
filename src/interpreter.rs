@@ -3,7 +3,6 @@ use std::hash::{Hash, Hasher};
 use std::fmt;
 use slab::Slab;
 
-use crate::ast::TypeLiteral;
 use crate::{ast};
 
 pub type Ptr = usize;
@@ -1041,7 +1040,7 @@ fn get_indexed_length(state: &mut State, original_indexed_value: &Value, indexed
 fn preprocess_args(
     state: &mut State,
     contract: &ast::FunctionPrototype,
-    loc: &ast::Loc,
+    _: &ast::Loc,
     positional_arguments: &Vec<ast::CallArgument>,
     variadic_argument: &Option<ast::CallArgument>,
     keyword_arguments: &Vec<ast::CallKeywordArgument>,
@@ -1074,7 +1073,7 @@ fn preprocess_args(
                         })
                     }
                 },
-                x => return Err(InterpreterErrorMessage {
+                _ => return Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError {
                         expected: "tuple or list".to_string(),
                         got: value.get_type_name()
@@ -1133,7 +1132,7 @@ fn preprocess_args(
                                     keyword_values.insert(s.clone(), (None, value.clone()));
                                 }
                             },
-                            x => return Err(InterpreterErrorMessage {
+                            _ => return Err(InterpreterErrorMessage {
                                 error: InterpreterError::TypeError {
                                     expected: "string key".to_string(),
                                     got: key.get_type_name()
@@ -1143,7 +1142,7 @@ fn preprocess_args(
                         }
                     }
                 },
-                x => return Err(InterpreterErrorMessage {
+                _ => return Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError {
                         expected: "dict".to_string(),
                         got: value.get_type_name()
@@ -2135,7 +2134,7 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
                     })
             }
         },
-        ast::Stmt::FunctionCall { expr: expression } => {eval_expression(state, expression, program)?;},
+        ast::Stmt::FunctionCall { expr: expression } => {let _ = eval_expression(state, expression, program)?;},
         ast::Stmt::Return { expr: expression } => {
             let value = match eval_expression(state, expression, program)? {
                 Ok(value) => value,
