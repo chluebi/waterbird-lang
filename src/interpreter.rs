@@ -7,6 +7,26 @@ use crate::{ast};
 
 pub type Ptr = usize;
 
+macro_rules! eval_or_return_from_expr {
+    ($state:expr, $expression:expr, $program:expr) => {
+        match eval_expression($state, $expression, $program)? {
+            Ok(value) => value,
+            Err(value) => return Ok(Err(value)),
+        }
+    };
+}
+
+macro_rules! eval_or_return_from_stmt {
+    ($state:expr, $expression:expr, $program:expr) => {
+        match eval_expression($state, $expression, $program)? {
+            Ok(value) => value,
+            Err(value) => return Ok(StatementReturn::Return(value)),
+        }
+    };
+}
+
+
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Value {
     Void,
@@ -486,10 +506,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             })
         },
         ast::Expr::DotAccess(ref e, ref v) => {
-            let value = match eval_expression(state, &e, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(Err(value))
-            };
+            let value = eval_or_return_from_expr!(state, e, program);
 
             let namespace = match value {
                 Value::NameSpacePtr(s) => s,
@@ -573,10 +590,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             match op {
                 // short-circuiting
                 ast::BinOp::And | ast::BinOp::Or => {
-                    let left_value = match eval_expression(state, &left, program)? {
-                        Ok(value) => value,
-                        Err(value) => return Ok(Err(value))
-                    };
+                    let left_value = eval_or_return_from_expr!(state, left, program);
 
                     let left_bool = match left_value {
                         Value::Bool(b) => b,
@@ -596,10 +610,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         return Ok(Ok(Value::Bool(true)));
                     }
 
-                    let right_value = match eval_expression(state, &right, program)? {
-                        Ok(value) => value,
-                        Err(value) => return Ok(Err(value))
-                    };
+                    let right_value = eval_or_return_from_expr!(state, right, program);
 
                     match right_value {
                         Value::Bool(_) => return Ok(Ok(right_value)),
@@ -615,14 +626,8 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 _ => ()
             }
 
-            let left_value = match eval_expression(state, &left, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(Err(value))
-            };
-            let right_value = match eval_expression(state, &right, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(Err(value))
-            };
+            let left_value = eval_or_return_from_expr!(state, left, program);
+            let right_value = eval_or_return_from_expr!(state, right, program);
 
             // Handle Eq and Neq using deep_equals
             match op {
@@ -698,10 +703,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             }
         },
         ast::Expr::UnOp { ref op, ref expr } => {
-            let value = match eval_expression(state, &expr, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(Err(value))
-            };
+            let value = eval_or_return_from_expr!(state, expr, program);
 
             match value.clone() {
                 Value::Int(value) => {
@@ -738,10 +740,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             ref keyword_variadic_argument 
         } => {
             if let ast::Expr::DotAccess(ref base_expr, ref method_name) = function.expr {
-                let self_value = match eval_expression(state, base_expr, program)? {
-                    Ok(value) => value,
-                    Err(value) => return Ok(Err(value))
-                };
+                let self_value = eval_or_return_from_expr!(state, base_expr, program);
 
                 let (function_name, new_positional_args) = match self_value {
                     Value::NameSpacePtr(namespace) => {
@@ -778,10 +777,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
             } else {
                 // This is a NORMAL function call, e.g., print(x) or a lambda call
-                let func_value = match eval_expression(state, function, program)? {
-                    Ok(value) => value,
-                    Err(value) => return Ok(Err(value))
-                };
+                let func_value = eval_or_return_from_expr!(state, function, program);
 
                 match func_value {
                     Value::FunctionPtr(ptr) => 
@@ -864,14 +860,8 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             }
         },
         ast::Expr::Indexing { ref indexed, ref indexer } => {
-            let original_indexed_value = match eval_expression(state, &indexed, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(Err(value))
-            };
-            let original_indexer_value = match eval_expression(state, &indexer, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(Err(value))
-            };
+            let original_indexed_value = eval_or_return_from_expr!(state, indexed, program);
+            let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
 
             if let Value::Dictionary(ptr) = original_indexed_value {
                 match state.heap.get(ptr) {
@@ -1058,10 +1048,7 @@ fn preprocess_args(
 
     match &variadic_argument {
         Some(arg) => {
-            let value = match eval_expression(state, &arg.expr, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(Err(value))
-            };
+            let value = eval_or_return_from_expr!(state, &arg.expr, program);
             let extra_args: Vec<Value> = match value.clone() {
                 Value::Tuple(elements) => elements,
                 Value::List(ptr) => {
@@ -1103,10 +1090,7 @@ fn preprocess_args(
 
     match keyword_variadic_argument {
         Some(arg) => {
-            let value = match eval_expression(state, &arg.expr, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(Err(value))
-            };
+            let value = eval_or_return_from_expr!(state, &arg.expr, program);
             match value.clone() {
                 Value::Dictionary(ptr) => {
                     let index_ref = match state.heap.get(ptr) {
@@ -1190,10 +1174,7 @@ fn preprocess_args(
     let mut keyword_variadic_arguments: HashMap<Value, Value> = HashMap::new();
 
     for keyword_arg in contract.keyword_arguments.clone() {
-        let value = match eval_expression(state, &keyword_arg.expr, program)? {
-            Ok(value) => value,
-            Err(value) => return Ok(Err(value))
-        }; 
+        let value = eval_or_return_from_expr!(state, &keyword_arg.expr, program);
         new_values.insert(keyword_arg.name, value);
     }
 
@@ -2023,27 +2004,15 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
         ast::Stmt::Assignment { target, expr: expression } => {
             match &target.expr {
                 ast::Expr::Variable(v) => {
-                    let value = match eval_expression(state, expression, program)? {
-                        Ok(value) => value,
-                        Err(value) => return Ok(StatementReturn::Return(value))
-                    };
+                    let value = eval_or_return_from_stmt!(state, expression, program);
                     state.stack.update_variable(&v,value);
                     return Ok(StatementReturn::None)
                 },
                 ast::Expr::Indexing { indexed, indexer } => {
-                    let original_indexed_value = match eval_expression(state, &indexed, program)? {
-                        Ok(value) => value,
-                        Err(value) => return Ok(StatementReturn::Return(value))
-                    };
-                    let original_indexer_value = match eval_expression(state, &indexer, program)? {
-                        Ok(value) => value,
-                        Err(value) => return Ok(StatementReturn::Return(value))
-                    };
+                    let original_indexed_value = eval_or_return_from_stmt!(state, indexed, program);
+                    let original_indexer_value = eval_or_return_from_stmt!(state, indexer, program);
 
-                    let value = match eval_expression(state, expression, program)? {
-                        Ok(value) => value,
-                        Err(value) => return Ok(StatementReturn::Return(value))
-                    };
+                    let value = eval_or_return_from_stmt!(state, expression, program);
 
                     if let Value::Dictionary(ptr) = original_indexed_value {
                         if !original_indexer_value.hashable() {
@@ -2119,10 +2088,7 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
                     }
                 },
                 ast::Expr::Tuple(elements) | ast::Expr::List(elements) => {
-                    let value = match eval_expression(state, expression, program)? {
-                        Ok(value) => value,
-                        Err(value) => return Ok(StatementReturn::Return(value))
-                    };
+                    let value = eval_or_return_from_stmt!(state, expression, program);
                     let assignment_list: Vec<(String, Value)> = unpack_elements(state, elements, value, &expression.loc)?;
                     assignment_list.into_iter().for_each(|(var, value)| {
                         state.stack.update_variable(&var, value);
@@ -2136,17 +2102,11 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
         },
         ast::Stmt::FunctionCall { expr: expression } => {let _ = eval_expression(state, expression, program)?;},
         ast::Stmt::Return { expr: expression } => {
-            let value = match eval_expression(state, expression, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(StatementReturn::Return(value))
-            };
+            let value = eval_or_return_from_stmt!(state, expression, program);
             return Ok(StatementReturn::Return(value));
         },
         ast::Stmt::IfElse { cond: condition, if_body, else_body } => {
-            let eval_condition = match eval_expression(state, &condition, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(StatementReturn::Return(value))
-            };
+            let eval_condition = eval_or_return_from_stmt!(state, &condition, program);
 
             match eval_condition {
                 Value::Bool(b) => {
@@ -2167,10 +2127,7 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
             };
         },
         ast::Stmt::While { cond: condition, body } => {
-            let eval_condition = match eval_expression(state, condition, program)? {
-                Ok(value) => value,
-                Err(value) => return Ok(StatementReturn::Return(value))
-            };
+            let eval_condition = eval_or_return_from_stmt!(state, condition, program);
 
             let mut cond = match eval_condition {
                 Value::Bool(b) => b,
@@ -2192,10 +2149,7 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
                     return Ok(StatementReturn::Return(v));
                 }
 
-                let eval_condition = match eval_expression(state, condition, program)? {
-                    Ok(value) => value,
-                    Err(value) => return Ok(StatementReturn::Return(value))
-                };
+                let eval_condition = eval_or_return_from_stmt!(state, condition, program);
                 cond = match eval_condition {
                     Value::Bool(b) => b,
                     x => {
@@ -2250,10 +2204,7 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
             }
         },
         ast::Stmt::Expression { expr: expression } => {
-            let value = match eval_expression(state, expression, program)?{
-                Ok(value) => value,
-                Err(value) => return Ok(StatementReturn::Return(value))
-            };
+            let value = eval_or_return_from_stmt!(state, expression, program);
             return Ok(StatementReturn::Eval(value));
         }
     }
