@@ -99,7 +99,7 @@ pub fn run(path: String) -> () {
         }
     };
 
-    println!("{:?}", program);
+    println!("{}", program);
 
 
     match interpreter::interpret_with_state(&program) {

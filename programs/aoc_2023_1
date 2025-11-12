@@ -1,0 +1,39 @@
+
+split(s, sep) {
+    l = [[]];
+    for c in s {
+        if c == sep {
+            l.push([]);
+        } else {
+            l[-1].push(c);
+        }
+    }
+    l
+}
+
+
+get_first_int(l) {
+    for c in l {
+        if c == "1" || c == "2" || c == "3" || c == "4" || c == "5" || c == "6" || c == "7" || c == "8" || c == "9" {
+            return int(c);
+        }
+    }
+}
+
+rev(l) {
+    new_l = l.clone();
+    ret_l = [];
+    while (len(new_l) > 0) {
+        ret_l.push(new_l.pop());
+    }
+    ret_l
+}
+
+main() {
+    inp = read_as_list("test_data/aoc_2023_1");
+    s = 0;
+    for line in split(inp, "\n") {
+        s += int(str(get_first_int(line)) + str(get_first_int(rev(line))));
+    }
+    s
+}

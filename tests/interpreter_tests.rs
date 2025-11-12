@@ -26,10 +26,11 @@ fn tests_basic() {
         ("programs/test_assert", Ok(interpreter::Value::Void)),
         ("programs/test_for", Ok(interpreter::Value::Void)),
         ("programs/test_expr_return", Ok(interpreter::Value::Int(1))),
+        ("programs/aoc_2023_1", Ok(interpreter::Value::Int(142))),
     ];
 
     for (path, res) in programs {
-        assert!(eval(path.to_string()) == res);
+        assert!(eval(path.to_string()) == res, "{}", path.to_string());
     }
 }
 
