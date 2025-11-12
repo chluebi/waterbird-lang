@@ -11,5 +11,5 @@ mod runner;
 
 
 pub fn main() {
-    runner::run("programs/test_for".to_string());
+    runner::run("programs/test_expr_return".to_string());
 }

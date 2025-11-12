@@ -1294,7 +1294,7 @@ fn call_function(
     state.stack.drop_function_context();
 
     match value {
-        Ok(StatementReturn::Return(v)) => {
+        Ok(StatementReturn::Return(v)) | Ok(StatementReturn::Eval(v)) => {
             Ok(Ok(v))
         },
         Ok(_) => {
