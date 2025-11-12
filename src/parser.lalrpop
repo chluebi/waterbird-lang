@@ -1,6 +1,8 @@
 use std::str::FromStr;
 use std::collections::HashMap;
 
+use unescaper;
+
 use crate::parse_ast;
 
 grammar;
@@ -647,7 +649,10 @@ Mapping: (parse_ast::LocExpr, parse_ast::LocExpr) = {
 Num: i64 = <s:NumString> => i64::from_str(s).unwrap();
 
 String: String = {
-    <s:StringString> => s[1..s.len() - 1].to_string(),
+    <s:StringString> => {
+        let remove_quotes = s[1..s.len() - 1].to_string();
+        unescaper::unescape(&remove_quotes).unwrap_or_default()
+    },
 };
 
 
@@ -710,5 +715,5 @@ match {
 
     "\""
 } else {
-    r#"\"[^\"]*\""# => StringString
+    r#"\"(\\.|[^"\\])*\""# => StringString
 }

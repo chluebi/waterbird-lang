@@ -538,6 +538,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 "len" => return Ok(Ok(Value::FunctionPtr(String::from("len")))),
                 "print" => return Ok(Ok(Value::FunctionPtr(String::from("print")))),
                 "read" => return Ok(Ok(Value::FunctionPtr(String::from("read")))),
+                "read_as_list" => return Ok(Ok(Value::FunctionPtr(String::from("read_as_list")))),
                 "assert" => return Ok(Ok(Value::FunctionPtr(String::from("assert")))),
 
                 _ => ()
@@ -727,6 +728,35 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             new_list.extend(right_value.clone());
                             let ptr = state.heap.alloc(HeapObject::List(new_list));
                             Ok(Ok(Value::List(ptr)))
+                        },
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "list", right: "list" },
+                            loc: Some(expression.loc.clone())
+                        })
+                    }
+                },
+
+                (Value::String(left_ptr), Value::String(right_ptr)) => {
+                    let left_value = match state.heap.get(left_ptr) {
+                        Some(HeapObject::Str(l)) => l,
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::InternalError("Expected Str Heap Object".to_string()),
+                            loc: Some(expression.loc.clone())
+                        })
+                    };
+
+                    let right_value = match state.heap.get(right_ptr) {
+                        Some(HeapObject::Str(l)) => l,
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::InternalError("Expected Str Heap Object".to_string()),
+                            loc: Some(expression.loc.clone())
+                        })
+                    };
+
+                    match op {
+                        ast::BinOp::Add => {
+                            let ptr = state.heap.intern_string(format!("{}{}", left_value, right_value));
+                            Ok(Ok(Value::String(ptr)))
                         },
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "list", right: "list" },
@@ -965,7 +995,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         Some(HeapObject::Str(str)) => {
                             let char_val = str.chars().nth(index).unwrap(); 
                             let char_str = char_val.to_string();
-                            let new_ptr = state.heap.alloc(HeapObject::Str(char_str));
+                            let new_ptr = state.heap.intern_string(char_str);
                             Ok(Ok(Value::String(new_ptr)))
                         },
                         _ => unreachable!() 
@@ -1229,7 +1259,7 @@ fn preprocess_args(
             _ => {
                 match &contract.keyword_variadic_argument {
                     Some(_) => {
-                        let ptr = state.heap.alloc(HeapObject::Str(String::from(key)));
+                        let ptr = state.heap.intern_string(String::from(key));
                         keyword_variadic_arguments.insert(Value::String(ptr), value);
                     }
                     _ => match arg {
@@ -2007,6 +2037,47 @@ fn call_builtin(
                                 Ok(s) => {
                                     let ptr = state.heap.intern_string(s);
                                     return Ok(Ok(Value::String(ptr)));
+                                }
+                                Err(e) => Err(InterpreterErrorMessage {error: InterpreterError::FileError(format!("Something went wrong reading the file: {}", e)), loc: Some(f_loc.clone())})
+                            }
+                        },
+                        _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected String Heap Object".to_string()), loc: Some(f_loc.clone())})
+                    }
+                },
+                _ => Err(InterpreterErrorMessage {
+                    error: InterpreterError::TypeError { expected: "str".to_string(), got: f_val.get_type_name() },
+                    loc: Some(f_loc.clone())
+                })
+            }
+        },
+
+        "read_as_list" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![ast::Argument {name: String::from("f"), arg_type: None, loc: 0..0}],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let f_val = args_map.get("f").unwrap();
+            let f_loc = &positional_arguments.get(0).unwrap().loc;
+
+            return match f_val {
+                Value::String(ptr) => {
+                    match state.heap.get(*ptr) {
+                        Some(HeapObject::Str(file_path)) => {
+                            match read_file(file_path) {
+                                Ok(s) => {
+                                    let list = HeapObject::List(s.chars().map(|x| Value::String(state.heap.intern_string(x.to_string()))).collect());
+                                    let ptr = state.heap.alloc(list);
+                                    return Ok(Ok(Value::List(ptr)));
                                 }
                                 Err(e) => Err(InterpreterErrorMessage {error: InterpreterError::FileError(format!("Something went wrong reading the file: {}", e)), loc: Some(f_loc.clone())})
                             }
