@@ -24,6 +24,7 @@ fn tests_basic() {
         ("programs/test_shortcircuit", Ok(interpreter::Value::Int(3))),
         ("programs/test_readfile", Ok(interpreter::Value::Int(10))),
         ("programs/test_assert", Ok(interpreter::Value::Void)),
+        ("programs/test_for", Ok(interpreter::Value::Void)),
     ];
 
     for (path, res) in programs {

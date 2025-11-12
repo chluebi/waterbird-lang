@@ -248,6 +248,18 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
                 loc: start..end
             }
         ]
+    },
+    <start: @L> "for" <p:Expression> "in" <i:Expression> <end: @R>  "{" <b:ControlFlowBody> "}" => {
+        vec![
+            parse_ast::LocStmt {
+                stmt: parse_ast::Stmt::For {
+                    pattern: p,
+                    iterable: i,
+                    body: Box::new(b)
+                },
+                loc: start..end
+            }
+        ]
     }
 }
 
@@ -667,6 +679,7 @@ match {
     "else",
     "while",
     "for",
+    "in",
     "return",
     "true",
     "false",

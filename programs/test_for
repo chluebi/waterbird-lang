@@ -1,0 +1,49 @@
+
+sum(l) {
+    s = 0;
+    for el in l {
+        s += el;
+    }
+    return s;
+}
+
+filter_odd(l) {
+    new_l = [];
+    for el in l {
+        if el % 2 == 0 {
+            new_l.push(el);
+        }
+    }
+
+    return new_l;
+}
+
+double(l) {
+    new_l = [];
+    for el in l {
+        for _ in [1, 2] {
+            new_l.push(el);
+        }
+    }
+
+    return new_l;
+}
+
+to_dict(l) {
+    d = {};
+    for el in l {
+        d[el] = el;
+    }
+    return d;
+}
+
+main() {
+    l = [1, 2, 3, 4];
+    assert(sum(l) == 10);
+    assert(len(filter_odd(l)) == 2);
+    assert(sum(filter_odd(l)) == 6);
+    assert(len(double(l)) == 2*len(l));
+    assert(len(filter_odd(double(l))) == 2*len(filter_odd(l)));
+    assert(len(to_dict(l)) == len(l));
+    assert(to_dict(double(l)) == to_dict(l));
+}
