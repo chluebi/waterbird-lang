@@ -211,7 +211,9 @@ pub enum BinOp {
     ShiftRightArith,
 
     And,
-    Or
+    Or,
+
+    In
 }
 
 impl fmt::Display for BinOp {
@@ -232,6 +234,7 @@ impl fmt::Display for BinOp {
             BinOp::ShiftRightArith => ">>",
             BinOp::And => "&&",
             BinOp::Or => "||",
+            BinOp::In => "in"
         };
         write!(f, "{}", op_str)
     }

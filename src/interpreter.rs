@@ -673,6 +673,8 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
             let left_value = eval_or_return_from_expr!(state, left, program);
             let right_value = eval_or_return_from_expr!(state, right, program);
+            let left_value_type_name = left_value.get_type_name();
+            let right_value_type_name = left_value.get_type_name();
 
             // Handle Eq and Neq using deep_equals
             match op {
@@ -682,10 +684,47 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 ast::BinOp::Neq => {
                     return Ok(Ok(Value::Bool(!deep_equals(&left_value, &right_value, &state.heap))));
                 },
+                ast::BinOp::In => {
+                    match (left_value, right_value) {
+                        (needle, Value::Tuple(values)) => {
+                            return Ok(Ok(Value::Bool(values.iter().any(|val| val == &needle))));
+                        },
+                        (needle, Value::List(ptr)) => {
+                            match state.heap.get(ptr) {
+                                Some(HeapObject::List(values)) => return Ok(Ok(Value::Bool(values.iter().any(|val| val == &needle)))),
+                                _ => {
+                                    return Err(InterpreterErrorMessage {
+                                        error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
+                                        loc: Some(right.loc.clone())
+                                    })
+                                }
+                            }
+                        },
+                        (Value::String(needle_ptr), Value::String(haystack_ptr)) => {
+                            match (state.heap.get(needle_ptr), state.heap.get(haystack_ptr))  {
+                                (Some(HeapObject::Str(needle)), Some(HeapObject::Str(haystack)))  => return Ok(Ok(Value::Bool(haystack.contains(needle)))),
+                                _ => {
+                                    return Err(InterpreterErrorMessage {
+                                        error: InterpreterError::InternalError("Expected String Heap Object".to_string()),
+                                        loc: Some(right.loc.clone())
+                                    })
+                                }
+                            }
+                        },
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::InvalidOperandTypesBin { 
+                                op: op.clone(), 
+                                left: left_value_type_name, 
+                                right: right_value_type_name
+                            },
+                            loc: Some(expression.loc.clone())
+                        })
+                    }
+                },
                 _ => ()
             }
 
-            match (left_value.clone(), right_value.clone()) {
+            match (left_value, right_value) {
                 (Value::Int(left_value), Value::Int(right_value)) => {
                     match op {
                         ast::BinOp::Leq => return Ok(Ok(Value::Bool(left_value <= right_value))),
@@ -729,7 +768,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             new_list.extend(right_value.clone());
                             let ptr = state.heap.alloc(HeapObject::List(new_list));
                             Ok(Ok(Value::List(ptr)))
-                        },
+                        }
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesBin { op: op.clone(), left: "list", right: "list" },
                             loc: Some(expression.loc.clone())
@@ -769,8 +808,8 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesBin { 
                                 op: op.clone(), 
-                                left: left_value.get_type_name(), 
-                                right: right_value.get_type_name() 
+                                left: left_value_type_name, 
+                                right: right_value_type_name 
                             },
                             loc: Some(expression.loc.clone())
                         })
@@ -779,7 +818,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
         ast::Expr::UnOp { ref op, ref expr } => {
             let value = eval_or_return_from_expr!(state, expr, program);
 
-            match value.clone() {
+            match value {
                 Value::Int(value) => {
                     match op {
                         ast::UnOp::Neg => return Ok(Ok(Value::Int(-value))),
