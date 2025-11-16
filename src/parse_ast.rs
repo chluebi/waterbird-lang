@@ -8,11 +8,11 @@ use crate::ast::{self, Loc};
 // unique variables
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-fn get_unique_var() -> String {
+fn get_unique_var(reminder: &str) -> String {
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
     
     // # is not allowed in variable names by the parser
-    format!("#temp_var_{}", id)
+    format!("#temp_var_{}_{}", reminder, id)
 }
 
 
@@ -546,13 +546,47 @@ impl Stmt {
                 })
             },
             Stmt::For { pattern, iterable, body } => {
-                let loop_counter = get_unique_var();
+                let loop_iterable = get_unique_var("for_iterable");
+                let loop_counter = get_unique_var("for_iterable");
+                let loop_len = get_unique_var("for_len");
+
                 let init_counter = LocStmt {
                     stmt: Stmt::Assignment { 
                         target: LocExpr {expr: Expr::Variable(loop_counter.clone()), loc: pattern.loc.clone()}, 
                         expr: LocExpr {expr: Expr::Int(0), loc: pattern.loc.clone()}},
                     loc: pattern.loc.clone(),
                 };
+
+                let iterable_loc = iterable.loc.clone();
+                let iterable_var = LocExpr {expr: Expr::Variable(loop_iterable.clone()), loc: pattern.loc.clone()};
+                let init_iterable = LocStmt {
+                    stmt: Stmt::Assignment { 
+                        target: iterable_var.clone(), 
+                        expr: iterable},
+                    loc: pattern.loc.clone(),
+                };
+
+                let len_var = LocExpr {expr: Expr::Variable(loop_len.clone()), loc: pattern.loc.clone()};
+                let iterable_len = LocExpr {
+                    expr: Expr::FunctionCall { 
+                        function: Box::new(LocExpr {
+                            expr: Expr::Variable("len".to_string()),
+                            loc: iterable_loc.clone()
+                        }),
+                        arguments: vec![LocCallArgument {
+                            argument: CallArgument::PositionalArgument(iterable_var.clone()),
+                            loc: iterable_loc.clone()
+                        }]
+                    },
+                    loc: iterable_loc.clone()
+                };
+                let init_len = LocStmt {
+                    stmt: Stmt::Assignment { 
+                        target: len_var.clone(), 
+                        expr: iterable_len},
+                    loc: pattern.loc.clone(),
+                };
+
                 let increase_counter = LocStmt {
                     stmt: Stmt::Assignment { 
                         target: LocExpr {expr: Expr::Variable(loop_counter.clone()), loc: pattern.loc.clone()}, 
@@ -573,29 +607,17 @@ impl Stmt {
                     },
                     loc: pattern.loc.clone()
                 };
-                let iterable_len = LocExpr {
-                    expr: Expr::FunctionCall { 
-                        function: Box::new(LocExpr {
-                            expr: Expr::Variable("len".to_string()),
-                            loc: iterable.loc.clone()
-                        }),
-                        arguments: vec![LocCallArgument {
-                            argument: CallArgument::PositionalArgument(iterable.clone()),
-                            loc: iterable.loc.clone()
-                        }]
-                    },
-                    loc: iterable.loc.clone()
-                };
+                
                 let condition = LocExpr {
                     expr: Expr::BinOp {
                         op: BinOp::Lt,
                         left: Box::new(LocExpr {
                         expr: Expr::Variable(loop_counter.clone()),
-                        loc: iterable.loc.clone()
+                        loc: iterable_loc.clone()
                         }),
-                        right: Box::new(iterable_len.clone())
+                        right: Box::new(len_var)
                     },
-                    loc: iterable.loc.clone()
+                    loc: iterable_loc.clone()
                 };
                 let pattern_loc = pattern.loc.clone();
                 let set_element = LocStmt {
@@ -603,7 +625,7 @@ impl Stmt {
                         target: pattern, 
                         expr: LocExpr {
                             expr: Expr::Indexing {
-                                indexed: Box::new(iterable.clone()),
+                                indexed: Box::new(iterable_var.clone()),
                                 indexer: Box::new(LocExpr {expr: Expr::Variable(loop_counter.clone()), loc: pattern_loc.clone()}) 
                             },
                             loc: pattern_loc.clone()
@@ -632,6 +654,8 @@ impl Stmt {
 
                 Ok(Stmt::preprocess(Stmt::Block { 
                     statements: vec![
+                        init_iterable,
+                        init_len,
                         init_counter,
                         new_loop
                     ]
