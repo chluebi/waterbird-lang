@@ -487,6 +487,18 @@ Expression: parse_ast::LocExpr = {
         },
         loc: start..end
     },
+    <start: @L> <indexed: Expression> "[" <indexer_start: OptExpression> ":" <indexer_border: OptExpression> "]" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Slice {
+            indexed: Box::new(indexed), indexer_start: indexer_start.map(Box::new), indexer_border: indexer_border.map(Box::new), indexer_step: None
+        },
+        loc: start..end
+    },
+    <start: @L> <indexed: Expression> "[" <indexer_start: OptExpression> ":" <indexer_border: OptExpression> ":" <indexer_step: OptExpression> "]" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Slice {
+            indexed: Box::new(indexed), indexer_start: indexer_start.map(Box::new), indexer_border: indexer_border.map(Box::new), indexer_step: indexer_step.map(Box::new)
+        },
+        loc: start..end
+    },
     <start: @L> <f: Expression> "(" <args:CallArguments> ")" <end: @R> => parse_ast::LocExpr {
         expr: parse_ast::Expr::FunctionCall {
             function: Box::new(f),
@@ -633,6 +645,10 @@ IndexExpression: parse_ast::LocExpr = {
     Expression
 }
 
+OptExpression: Option<parse_ast::LocExpr> = {
+    <expr:Expression> => Some(expr),
+    => None
+}
 
 Term: parse_ast::LocExpr = {
     <start: @L> "true" <end: @R> => parse_ast::LocExpr {
