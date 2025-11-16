@@ -159,7 +159,9 @@ pub enum BinOp {
     ShiftRightArith,
 
     And,
-    Or
+    Or,
+
+    In,
 }
 
 impl BinOp {
@@ -180,6 +182,7 @@ impl BinOp {
             BinOp::ShiftRightArith => ast::BinOp::ShiftRightArith,
             BinOp::And => ast::BinOp::And,
             BinOp::Or => ast::BinOp::Or,
+            BinOp::In => ast::BinOp::In
         })
     }
 }
