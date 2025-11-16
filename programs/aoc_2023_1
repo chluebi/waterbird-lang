@@ -1,17 +1,3 @@
-
-split(s, sep) {
-    l = [[]];
-    for c in s {
-        if c == sep {
-            l.push([]);
-        } else {
-            l[-1].push(c);
-        }
-    }
-    l
-}
-
-
 get_first_int(l) {
     for c in l {
         if c == "1" || c == "2" || c == "3" || c == "4" || c == "5" || c == "6" || c == "7" || c == "8" || c == "9" {
@@ -30,13 +16,10 @@ rev(l) {
 }
 
 main() {
-    print("reading");
-    inp = read_as_list("test_data/aoc_2023_1");
-    print("read");
+    inp = read("test_data/aoc_2023_1");
     s = 0;
     for line in split(inp, "\n") {
-        print("line", line);
-        s += int(str(get_first_int(line)) + str(get_first_int(rev(line))));
+        s += int(str(get_first_int(line)) + str(get_first_int(rev(list(line)))));
     }
     s
 }
