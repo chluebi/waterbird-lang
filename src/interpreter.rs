@@ -539,6 +539,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 "print" => return Ok(Ok(Value::FunctionPtr(String::from("print")))),
                 "read" => return Ok(Ok(Value::FunctionPtr(String::from("read")))),
                 "read_as_list" => return Ok(Ok(Value::FunctionPtr(String::from("read_as_list")))),
+                "split" => return Ok(Ok(Value::FunctionPtr(String::from("split")))),
                 "assert" => return Ok(Ok(Value::FunctionPtr(String::from("assert")))),
 
                 _ => ()
@@ -2088,6 +2089,51 @@ fn call_builtin(
                 _ => Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError { expected: "str".to_string(), got: f_val.get_type_name() },
                     loc: Some(f_loc.clone())
+                })
+            }
+        },
+
+        "split" | "String.split" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![
+                    ast::Argument {name: String::from("s"), arg_type: None, loc: 0..0},
+                    ast::Argument {name: String::from("sep"), arg_type: None, loc: 0..0},
+                ],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let s_val = args_map.get("s").unwrap();
+            let s_loc = &positional_arguments.get(0).unwrap().loc;
+
+            let sep_val = args_map.get("sep").unwrap();
+            let sep_loc = &positional_arguments.get(1).unwrap().loc;
+            
+
+            return match (s_val, sep_val) {
+                (Value::String(ptr), Value::String(ptr2)) => {
+                    let (s, sep) = match (state.heap.get(*ptr), state.heap.get(*ptr2)) {
+                        (Some(HeapObject::Str(s_ref)), Some(HeapObject::Str(sep_ref))) => {
+                            (s_ref.clone(), sep_ref.clone())
+                        },
+                        _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected String Heap Object".to_string()), loc: Some(s_loc.clone())})
+                    };
+
+                    let sep_list: Vec<Value> = s.split(&sep).map(|str| {let ptr= state.heap.intern_string(str.to_string()); Value::String(ptr)}).collect();
+                    let list_ptr = state.heap.alloc(HeapObject::List(sep_list));
+                    Ok(Ok(Value::List(list_ptr)))
+                },
+                _ => Err(InterpreterErrorMessage {
+                    error: InterpreterError::TypeError { expected: "str".to_string(), got: s_val.get_type_name() },
+                    loc: Some(s_loc.clone())
                 })
             }
         },
