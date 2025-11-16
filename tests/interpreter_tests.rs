@@ -27,6 +27,9 @@ fn tests_basic() {
         ("programs/test_for", Ok(interpreter::Value::Void)),
         ("programs/test_expr_return", Ok(interpreter::Value::Int(1))),
         ("programs/aoc_2023_1", Ok(interpreter::Value::Int(55123))),
+        ("programs/test_slice_list", Ok(interpreter::Value::Void)),
+        ("programs/test_slice_string", Ok(interpreter::Value::Void)),
+        ("programs/test_slice_tuple", Ok(interpreter::Value::Void)),
     ];
 
     for (path, res) in programs {

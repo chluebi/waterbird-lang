@@ -259,6 +259,12 @@ pub enum Expr {
         indexed: Box<LocExpr>,
         indexer: Box<LocExpr>
     },
+    Slice {
+        indexed: Box<LocExpr>,
+        indexer_start: Option<Box<LocExpr>>,
+        indexer_border: Option<Box<LocExpr>>,
+        indexer_step: Option<Box<LocExpr>>,
+    },
     FunctionPtr(String),
     Lambda {
        arguments: Vec<LambdaArgument>,
@@ -412,6 +418,29 @@ impl Expr {
                 Ok(ast::Expr::Indexing {
                     indexed: Box::new(LocExpr::preprocess(*indexed)?),
                     indexer: Box::new(LocExpr::preprocess(*indexer)?)
+                })
+            },
+            Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => {
+                Ok(ast::Expr::Slice {
+                    indexed: Box::new(LocExpr::preprocess(*indexed)?),
+                    indexer_start: {
+                        match indexer_start {
+                            Some(x) => Some(Box::new(LocExpr::preprocess(*x)?)),
+                            _ => None
+                        }
+                    },
+                    indexer_border: {
+                        match indexer_border {
+                            Some(x) => Some(Box::new(LocExpr::preprocess(*x)?)),
+                            _ => None
+                        }
+                    },
+                    indexer_step: {
+                        match indexer_step {
+                            Some(x) => Some(Box::new(LocExpr::preprocess(*x)?)),
+                            _ => None
+                        }
+                    }
                 })
             },
             Expr::FunctionPtr(s) => Ok(ast::Expr::FunctionPtr(s)),

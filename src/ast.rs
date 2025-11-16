@@ -323,6 +323,12 @@ pub enum Expr {
         indexed: Box<LocExpr>,
         indexer: Box<LocExpr>
     },
+    Slice {
+        indexed: Box<LocExpr>,
+        indexer_start: Option<Box<LocExpr>>,
+        indexer_border: Option<Box<LocExpr>>,
+        indexer_step: Option<Box<LocExpr>>,
+    },
     FunctionPtr(String),
     Lambda {
        arguments: Vec<LambdaArgument>,
@@ -375,6 +381,9 @@ impl fmt::Display for Expr {
             },
             Expr::Indexing { indexed, indexer } => {
                 write!(f, "{}[{}]", indexed, indexer)
+            },
+            Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => {
+                write!(f, "{}[{}:{}:{}]", indexed, indexer_start.clone().map(|x| x.to_string()).unwrap_or("".to_string()), indexer_border.clone().map(|x| x.to_string()).unwrap_or("".to_string()), indexer_step.clone().map(|x| x.to_string()).unwrap_or("".to_string()))
             },
             Expr::FunctionPtr(name) => write!(f, "<fn_ptr: {}>", name),
             Expr::Lambda { arguments, expr } => {

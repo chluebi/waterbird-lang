@@ -1002,32 +1002,9 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 }
             }
 
-            let mut indexer_value = match original_indexer_value.clone() {
-                Value::Int(i) => i,
-                _ => return Err(InterpreterErrorMessage {
-                    error: InterpreterError::TypeError { 
-                        expected: "int".to_string(), 
-                        got: original_indexer_value.get_type_name() 
-                    },
-                    loc: Some(indexer.loc.clone())
-                })
-            };
-
             let indexed_length: usize = get_indexed_length(state, &original_indexed_value, indexed)?;
-
-            if indexer_value < 0 {
-                indexer_value = (indexed_length as i64) + indexer_value;
-            }
+            let index = wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?;
             
-
-            if indexer_value < 0 || indexer_value >= (indexed_length as i64) {
-                return Err(InterpreterErrorMessage {
-                    error: InterpreterError::IndexOutOfBounds,
-                    loc: Some(indexer.loc.clone())
-                });
-            }
-
-            let index = indexer_value as usize;
 
             match original_indexed_value {
                 Value::String(ptr) => {
@@ -1055,6 +1032,138 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 _ => unreachable!()
             }
         },
+        ast::Expr::Slice { ref indexed, ref indexer_start, ref indexer_border, ref indexer_step } => {
+            let original_indexed_value = eval_or_return_from_expr!(state, indexed, program);
+            let indexed_length: usize = get_indexed_length(state, &original_indexed_value, indexed)?;
+
+            let (reverse, indexer_step) = match indexer_step {
+                Some(indexer_step) => {
+                    let original_indexer_value = eval_or_return_from_expr!(state, indexer_step, program);
+                    let indexer_value = match original_indexer_value.clone() {
+                        Value::Int(i) => i,
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::TypeError { 
+                                expected: "int".to_string(), 
+                                got: original_indexer_value.get_type_name() 
+                            },
+                            loc: Some(indexer_step.loc.clone())
+                        })
+                    };
+
+                    if indexer_value < 0 {
+                        (true, (-indexer_value) as usize)
+                    } else {
+                        (false, indexer_value as usize)
+                    }
+                },
+                _ => (false, 1)
+            };
+
+            let (indexer_start, indexer_border, remaining_elements) = match reverse {
+                false => {
+                    let value_indexer_start: usize = match indexer_start {
+                        Some(indexer) => {
+                            let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
+                            soft_wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?
+                        },
+                        _ => 0
+                    };
+
+                    let value_indexer_border: usize = match indexer_border {
+                        Some(indexer) => {
+                            let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
+                            soft_wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?
+                        },
+                        _ => indexed_length
+                    };
+                    
+
+                    let remaining_elements = {
+                        let d = (value_indexer_border as i64) - (value_indexer_start as i64);
+                        if d < 0 {
+                            0 as usize
+                        } else {
+                            d as usize
+                        }
+                    };
+                    
+                    (value_indexer_start, value_indexer_border, remaining_elements)
+                },
+                true => {
+                    // reversed
+                    let value_indexer_start: usize = match indexer_border {
+                        Some(indexer) => {
+                            let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
+                            soft_wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?
+                        },
+                        _ => 0
+                    };
+
+                    // reversed
+                    let value_indexer_border: usize = match indexer_start {
+                        Some(indexer) => {
+                            let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
+                            soft_wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?
+                        },
+                        _ => indexed_length
+                    };
+                    
+
+                    let remaining_elements = {
+                        let d = (value_indexer_border as i64) - (value_indexer_start as i64);
+                        if d < 0 {
+                            0 as usize
+                        } else {
+                            d as usize
+                        }
+                    };
+
+                    (value_indexer_start, value_indexer_border, remaining_elements)
+                }
+            };
+
+            match original_indexed_value {
+                Value::String(ptr) => {
+                    match state.heap.get(ptr) {
+                        Some(HeapObject::Str(str)) => {
+                            if reverse {
+                                let str: Vec<char> = str.chars().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect();
+                                let str = str.into_iter().rev().collect();
+                                let new_ptr = state.heap.intern_string(str);
+                                Ok(Ok(Value::String(new_ptr)))
+                            } else {                        
+                                let str: String = str.chars().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect();
+                                let new_ptr = state.heap.intern_string(str);
+                                Ok(Ok(Value::String(new_ptr)))
+                            }                            
+                        },
+                        _ => unreachable!() 
+                    }
+                },
+                Value::Tuple(values) => {
+                    if reverse {
+                        Ok(Ok(Value::Tuple(values.into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).rev().collect())))
+                    } else {
+                        Ok(Ok(Value::Tuple(values.into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect())))
+                    }
+                },
+                Value::List(ptr) => {
+                    match state.heap.get(ptr) {
+                        Some(HeapObject::List(l)) => {
+                            if reverse {
+                                let new_list = HeapObject::List(l.clone().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).rev().collect());
+                                Ok(Ok(Value::List(state.heap.alloc(new_list))))
+                            } else {
+                                let new_list = HeapObject::List(l.clone().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect());
+                                Ok(Ok(Value::List(state.heap.alloc(new_list))))
+                            }
+                        },
+                        _ => unreachable!()
+                    }
+                },
+                _ => unreachable!()
+            }
+        }
         ast::Expr::FunctionPtr(ref s) => {Ok(Ok(Value::FunctionPtr(s.clone())))},
         ast::Expr::Lambda { ref arguments, ref expr } => {
             let ptr = state.heap.alloc(HeapObject::Lambda {arguments: arguments.clone(), expr: expr.clone()});
@@ -1101,6 +1210,53 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             }
         }
     }
+}
+
+fn wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed_length: usize) -> Result<usize, InterpreterErrorMessage> {
+    let mut indexer_value = match original_indexer_value.clone() {
+        Value::Int(i) => i,
+        _ => return Err(InterpreterErrorMessage {
+            error: InterpreterError::TypeError { 
+                expected: "int".to_string(), 
+                got: original_indexer_value.get_type_name() 
+            },
+            loc: Some(indexer_loc)
+        })
+    };
+
+    if indexer_value < 0 {
+        indexer_value = (indexed_length as i64) + indexer_value;
+    }
+    
+
+    if indexer_value < 0 || indexer_value >= (indexed_length as i64) {
+        return Err(InterpreterErrorMessage {
+            error: InterpreterError::IndexOutOfBounds,
+            loc: Some(indexer_loc)
+        });
+    }
+
+    return Ok(indexer_value as usize);
+}
+
+// no bounds check
+fn soft_wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed_length: usize) -> Result<usize, InterpreterErrorMessage> {
+    let mut indexer_value = match original_indexer_value.clone() {
+        Value::Int(i) => i,
+        _ => return Err(InterpreterErrorMessage {
+            error: InterpreterError::TypeError { 
+                expected: "int".to_string(), 
+                got: original_indexer_value.get_type_name() 
+            },
+            loc: Some(indexer_loc)
+        })
+    };
+
+    if indexer_value < 0 {
+        indexer_value = (indexed_length as i64) + indexer_value;
+    }
+
+    return Ok(indexer_value as usize);
 }
 
 
