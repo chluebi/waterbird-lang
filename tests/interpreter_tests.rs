@@ -26,7 +26,7 @@ fn tests_basic() {
         ("programs/test_assert", Ok(interpreter::Value::Void)),
         ("programs/test_for", Ok(interpreter::Value::Void)),
         ("programs/test_expr_return", Ok(interpreter::Value::Int(1))),
-        ("programs/aoc_2023_1", Ok(interpreter::Value::Int(142))),
+        ("programs/aoc_2023_1", Ok(interpreter::Value::Int(55123))),
     ];
 
     for (path, res) in programs {

@@ -30,9 +30,12 @@ rev(l) {
 }
 
 main() {
+    print("reading");
     inp = read_as_list("test_data/aoc_2023_1");
+    print("read");
     s = 0;
     for line in split(inp, "\n") {
+        print("line", line);
         s += int(str(get_first_int(line)) + str(get_first_int(rev(line))));
     }
     s
