@@ -104,28 +104,17 @@ impl Value {
             Value::Int(i) => Ok(*i != 0),
             Value::Void => Ok(false),
             Value::String(ptr) => {
-                // Retrieve string content from the heap
-                let s = match state.heap.get(*ptr) {
-                    Some(HeapObject::Str(s)) => s,
-                    _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
-                };
+                let s = state.heap.get_string(*ptr, Some(&loc))?;
                 Ok(!s.is_empty())
             },
             Value::Tuple(v) => Ok(!v.is_empty()),
             Value::List(ptr) => {
                 // Retrieve list content from the heap
-                let l = match state.heap.get(*ptr) {
-                    Some(HeapObject::List(l)) => l,
-                    _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap for Value::List")), loc: Some(loc.clone())})
-                };
+                let l = state.heap.get_list(*ptr, Some(&loc))?;
                 Ok(!l.is_empty())
             },
             Value::Dictionary(ptr) => {
-                // Retrieve dictionary content from the heap (assuming `HeapObject::Dict(d)` yields a reference with `is_empty()`)
-                let d = match state.heap.get(*ptr) {
-                    Some(HeapObject::Dictionary(d)) => d,
-                    _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap for Value::Dictionary")), loc: Some(loc.clone())})
-                };
+                let d = state.heap.get_dict(*ptr, Some(&loc))?;
                 Ok(!d.is_empty())
             },
             // Functions and Lambdas are generally truthy
@@ -162,12 +151,68 @@ impl Heap {
         self.objects.insert(object)
     }
 
-    pub fn get(&self, ptr: Ptr) -> Option<&HeapObject> {
+    pub fn _get(&self, ptr: Ptr) -> Option<&HeapObject> {
         self.objects.get(ptr)
     }
 
-    pub fn get_mut(&mut self, ptr: Ptr) -> Option<&mut HeapObject> {
-        self.objects.get_mut(ptr)
+    pub fn get_string(&self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<&String, InterpreterErrorMessage> {
+        match self.objects.get(ptr) {
+            Some(HeapObject::Str(str)) => Ok(str),
+            _ => Err(InterpreterErrorMessage {
+                error: InterpreterError::InternalError("Expected String Heap Object".to_string()),
+                loc: loc.cloned()
+            })
+        }
+    }
+
+    pub fn get_list(&self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<&Vec<Value>, InterpreterErrorMessage> {
+        match self.objects.get(ptr) {
+            Some(HeapObject::List(l)) => Ok(l),
+            _ => Err(InterpreterErrorMessage {
+                error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
+                loc: loc.cloned()
+            })
+        }
+    }
+
+    pub fn get_dict(&self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<&HashMap<Value, Value>, InterpreterErrorMessage> {
+        match self.objects.get(ptr) {
+            Some(HeapObject::Dictionary(d)) => Ok(d),
+            _ => Err(InterpreterErrorMessage {
+                error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
+                loc: loc.cloned()
+            })
+        }
+    }
+
+    pub fn get_lambda(&self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<(&Vec<ast::LambdaArgument>, &ast::LocExpr), InterpreterErrorMessage> {
+        match self.objects.get(ptr) {
+            Some(HeapObject::Lambda {arguments, expr}) => Ok((arguments, *&expr)),
+            _ => Err(InterpreterErrorMessage {
+                error: InterpreterError::InternalError("Expected Lambda Heap Object".to_string()),
+                loc: loc.cloned()
+            })
+        }
+    }
+
+    pub fn get_list_mut(&mut self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<&mut Vec<Value>, InterpreterErrorMessage> {
+        match self.objects.get_mut(ptr) {
+            Some(HeapObject::List(l)) => Ok(l),
+            _ => Err(InterpreterErrorMessage {
+                error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
+                loc: loc.cloned()
+            })
+        }
+    }
+
+    pub fn get_dict_mut(&mut self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<&mut HashMap<Value, Value>, InterpreterErrorMessage> {
+        match self.objects.get_mut(ptr) {
+            Some(HeapObject::Dictionary(d)) => Ok(d),
+            _ => Err(InterpreterErrorMessage {
+                error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
+                loc: loc.cloned()
+            })
+        }
     }
 
     pub fn free(&mut self, ptr: Ptr) {
@@ -231,8 +276,8 @@ impl<'a> fmt::Display for DisplayValue<'a> {
             Value::Int(i) => write!(f, "{}", i),
             Value::Bool(b) => write!(f, "{}", b),
             Value::String(ptr) => {
-                match self.heap.get(*ptr) {
-                    Some(HeapObject::Str(s)) => {
+                match self.heap.get_string(*ptr, None) {
+                    Ok(s) => {
                         if self.is_contained {
                             write!(f, "\"{}\"", s) 
                         } else {
@@ -250,8 +295,8 @@ impl<'a> fmt::Display for DisplayValue<'a> {
                 write!(f, "({})", s)
             }
             Value::List(ptr) => {
-                 match self.heap.get(*ptr) {
-                    Some(HeapObject::List(l)) => {
+                match self.heap.get_list(*ptr, None) {
+                    Ok(l) => {
                         let s = l.iter()
                             .map(|v| format!("{}", self.contained_display(v)))
                             .collect::<Vec<_>>()
@@ -262,8 +307,8 @@ impl<'a> fmt::Display for DisplayValue<'a> {
                 }
             }
             Value::Dictionary(ptr) => {
-                match self.heap.get(*ptr) {
-                    Some(HeapObject::Dictionary(d)) => {
+                match self.heap.get_dict(*ptr, None) {
+                    Ok(d) => {
                         let s = d.iter()
                             .map(|(k, v)| format!("{}: {}", 
                                 self.contained_display(k), 
@@ -462,11 +507,11 @@ fn deep_equals(left: &Value, right: &Value, heap: &Heap) -> bool {
         (Value::List(l_ptr), Value::List(r_ptr)) => {
             if l_ptr == r_ptr { return true; }
 
-            let l_obj = heap.get(*l_ptr);
-            let r_obj = heap.get(*r_ptr);
+            let l_obj = heap.get_list(*l_ptr, None);
+            let r_obj = heap.get_list(*r_ptr, None);
 
             match (l_obj, r_obj) {
-                (Some(HeapObject::List(l_vec)), Some(HeapObject::List(r_vec))) => {
+                (Ok(l_vec), Ok(r_vec)) => {
                     if l_vec.len() != r_vec.len() {
                         return false;
                     }
@@ -479,11 +524,11 @@ fn deep_equals(left: &Value, right: &Value, heap: &Heap) -> bool {
         (Value::Dictionary(l_ptr), Value::Dictionary(r_ptr)) => {
             if l_ptr == r_ptr { return true; } // Same object
 
-            let l_obj = heap.get(*l_ptr);
-            let r_obj = heap.get(*r_ptr);
+            let l_obj = heap.get_dict(*l_ptr, None);
+            let r_obj = heap.get_dict(*r_ptr, None);
 
             match (l_obj, r_obj) {
-                (Some(HeapObject::Dictionary(l_map)), Some(HeapObject::Dictionary(r_map))) => {
+                (Ok(l_map), Ok(r_map)) => {
                     if l_map.len() != r_map.len() {
                         return false;
                     }
@@ -690,26 +735,11 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             return Ok(Ok(Value::Bool(values.iter().any(|val| val == &needle))));
                         },
                         (needle, Value::List(ptr)) => {
-                            match state.heap.get(ptr) {
-                                Some(HeapObject::List(values)) => return Ok(Ok(Value::Bool(values.iter().any(|val| val == &needle)))),
-                                _ => {
-                                    return Err(InterpreterErrorMessage {
-                                        error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
-                                        loc: Some(right.loc.clone())
-                                    })
-                                }
-                            }
+                            return Ok(Ok(Value::Bool(state.heap.get_list(ptr, Some(&right.loc))?.iter().any(|val| val == &needle))))
                         },
                         (Value::String(needle_ptr), Value::String(haystack_ptr)) => {
-                            match (state.heap.get(needle_ptr), state.heap.get(haystack_ptr))  {
-                                (Some(HeapObject::Str(needle)), Some(HeapObject::Str(haystack)))  => return Ok(Ok(Value::Bool(haystack.contains(needle)))),
-                                _ => {
-                                    return Err(InterpreterErrorMessage {
-                                        error: InterpreterError::InternalError("Expected String Heap Object".to_string()),
-                                        loc: Some(right.loc.clone())
-                                    })
-                                }
-                            }
+                            let (needle, haystack) = (state.heap.get_string(needle_ptr, Some(&right.loc))?, state.heap.get_string(haystack_ptr, Some(&left.loc))?);
+                            return Ok(Ok(Value::Bool(haystack.contains(needle))))
                         },
                         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::InvalidOperandTypesBin { 
@@ -746,21 +776,8 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 },
 
                 (Value::List(left_ptr), Value::List(right_ptr)) => {
-                    let left_value = match state.heap.get(left_ptr) {
-                        Some(HeapObject::List(l)) => l,
-                        _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
-                            loc: Some(expression.loc.clone())
-                        })
-                    };
-
-                    let right_value = match state.heap.get(right_ptr) {
-                        Some(HeapObject::List(l)) => l,
-                        _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
-                            loc: Some(expression.loc.clone())
-                        })
-                    };
+                    let left_value = state.heap.get_list(left_ptr, Some(&left.loc))?;
+                    let right_value = state.heap.get_list(right_ptr, Some(&right.loc))?;
 
                     match op {
                         ast::BinOp::Add => {
@@ -777,21 +794,8 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 },
 
                 (Value::String(left_ptr), Value::String(right_ptr)) => {
-                    let left_value = match state.heap.get(left_ptr) {
-                        Some(HeapObject::Str(l)) => l,
-                        _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InternalError("Expected Str Heap Object".to_string()),
-                            loc: Some(expression.loc.clone())
-                        })
-                    };
-
-                    let right_value = match state.heap.get(right_ptr) {
-                        Some(HeapObject::Str(l)) => l,
-                        _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InternalError("Expected Str Heap Object".to_string()),
-                            loc: Some(expression.loc.clone())
-                        })
-                    };
+                    let left_value = state.heap.get_string(left_ptr, Some(&left.loc))?;
+                    let right_value = state.heap.get_string(right_ptr, Some(&right.loc))?;
 
                     match op {
                         ast::BinOp::Add => {
@@ -905,23 +909,16 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             program
                         ),
                     Value::Lambda(ptr) => {
-                        let (arguments, expr) = match state.heap.get(ptr) {
-                            Some(HeapObject::Lambda { arguments, expr }) => {
-                                (arguments.clone(), expr.clone())
-                            },
-                            _ => return Err(InterpreterErrorMessage {
-                                error: InterpreterError::InternalError("Expected Lambda Heap Object".to_string()),
-                                loc: Some(function.loc.clone())
-                            })
-                        };
-
                         let argument_values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
                             = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expr, program)).collect();
-
 
                         let argument_values: Vec<Value> = match argument_values? {
                             Ok(values) => values,
                             Err(value) => return Ok(Err(value))
+                        };
+
+                        let (arguments, expr) = match state.heap.get_lambda(ptr, Some(&function.loc))? {
+                            (arguments, expr) => (arguments.clone(), expr.clone())
                         };
 
                         if argument_values.len() < arguments.len() {
@@ -977,28 +974,20 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
 
             if let Value::Dictionary(ptr) = original_indexed_value {
-                match state.heap.get(ptr) {
-                    Some(HeapObject::Dictionary(dict)) => {
-                        if !original_indexer_value.hashable() {
-                             return Err(InterpreterErrorMessage {
-                                error: InterpreterError::UnhashableKey,
-                                loc: Some(indexer.loc.clone())
-                            })
-                        }
-                        match dict.get(&original_indexer_value) {
-                            Some(value) => return Ok(Ok(value.clone())),
-                            _ => return Err(InterpreterErrorMessage {
-                                error: InterpreterError::KeyNotFound,
-                                loc: Some(indexer.loc.clone())
-                            })
-                        }
-                    },
-                    _ => {
+                let dict = state.heap.get_dict(ptr, Some(&indexed.loc))?;
+
+                if !original_indexer_value.hashable() {
                         return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
-                            loc: Some(indexed.loc.clone())
-                        })
-                    }
+                        error: InterpreterError::UnhashableKey,
+                        loc: Some(indexer.loc.clone())
+                    })
+                }
+                match dict.get(&original_indexer_value) {
+                    Some(value) => return Ok(Ok(value.clone())),
+                    _ => return Err(InterpreterErrorMessage {
+                        error: InterpreterError::KeyNotFound,
+                        loc: Some(indexer.loc.clone())
+                    })
                 }
             }
 
@@ -1008,26 +997,16 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
             match original_indexed_value {
                 Value::String(ptr) => {
-                    match state.heap.get(ptr) {
-                        Some(HeapObject::Str(str)) => {
-                            let char_val = str.chars().nth(index).unwrap(); 
-                            let char_str = char_val.to_string();
-                            let new_ptr = state.heap.intern_string(char_str);
-                            Ok(Ok(Value::String(new_ptr)))
-                        },
-                        _ => unreachable!() 
-                    }
+                    let char_val = state.heap.get_string(ptr, Some(&expression.loc))?.chars().nth(index).unwrap(); 
+                    let char_str = char_val.to_string();
+                    let new_ptr = state.heap.intern_string(char_str);
+                    Ok(Ok(Value::String(new_ptr)))
                 },
                 Value::Tuple(values) => {
                     Ok(Ok(values[index].clone()))
                 },
                 Value::List(ptr) => {
-                    match state.heap.get(ptr) {
-                    Some(HeapObject::List(l)) => {
-                        Ok(Ok(l[index].clone()))
-                    },
-                    _ => unreachable!()
-                    }
+                    Ok(Ok(state.heap.get_list(ptr, Some(&expression.loc))?[index].clone()))
                 },
                 _ => unreachable!()
             }
@@ -1124,21 +1103,17 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
 
             match original_indexed_value {
                 Value::String(ptr) => {
-                    match state.heap.get(ptr) {
-                        Some(HeapObject::Str(str)) => {
-                            if reverse {
-                                let str: Vec<char> = str.chars().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect();
-                                let str = str.into_iter().rev().collect();
-                                let new_ptr = state.heap.intern_string(str);
-                                Ok(Ok(Value::String(new_ptr)))
-                            } else {                        
-                                let str: String = str.chars().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect();
-                                let new_ptr = state.heap.intern_string(str);
-                                Ok(Ok(Value::String(new_ptr)))
-                            }                            
-                        },
-                        _ => unreachable!() 
-                    }
+                    let str = state.heap.get_string(ptr, Some(&indexed.loc))?;
+                    if reverse {
+                        let str: Vec<char> = str.chars().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect();
+                        let str = str.into_iter().rev().collect();
+                        let new_ptr = state.heap.intern_string(str);
+                        Ok(Ok(Value::String(new_ptr)))
+                    } else {                        
+                        let str: String = str.chars().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect();
+                        let new_ptr = state.heap.intern_string(str);
+                        Ok(Ok(Value::String(new_ptr)))
+                    }                            
                 },
                 Value::Tuple(values) => {
                     if reverse {
@@ -1148,17 +1123,13 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     }
                 },
                 Value::List(ptr) => {
-                    match state.heap.get(ptr) {
-                        Some(HeapObject::List(l)) => {
-                            if reverse {
-                                let new_list = HeapObject::List(l.clone().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).rev().collect());
-                                Ok(Ok(Value::List(state.heap.alloc(new_list))))
-                            } else {
-                                let new_list = HeapObject::List(l.clone().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect());
-                                Ok(Ok(Value::List(state.heap.alloc(new_list))))
-                            }
-                        },
-                        _ => unreachable!()
+                    let l = state.heap.get_list(ptr, Some(&indexed.loc))?;
+                    if reverse {
+                        let new_list = HeapObject::List(l.clone().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).rev().collect());
+                        Ok(Ok(Value::List(state.heap.alloc(new_list))))
+                    } else {
+                        let new_list = HeapObject::List(l.clone().into_iter().skip(indexer_start).take(remaining_elements).step_by(indexer_step).collect());
+                        Ok(Ok(Value::List(state.heap.alloc(new_list))))
                     }
                 },
                 _ => unreachable!()
@@ -1263,27 +1234,11 @@ fn soft_wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed
 fn get_indexed_length(state: &mut State, original_indexed_value: &Value, indexed: &ast::LocExpr) -> Result<usize, InterpreterErrorMessage> {
     match &original_indexed_value {
         Value::String(ptr) => {
-            match state.heap.get(*ptr) {
-                Some(HeapObject::Str(str)) => Ok(str.chars().count()),
-                _ => {
-                    return Err(InterpreterErrorMessage {
-                        error: InterpreterError::InternalError("Expected String Heap Object".to_string()),
-                        loc: Some(indexed.loc.clone())
-                    })
-                }
-            }
+            Ok(state.heap.get_string(*ptr, Some(&indexed.loc))?.chars().count())
         },
         Value::Tuple(values) => Ok(values.len()),
         Value::List(ptr) => {
-            match state.heap.get(*ptr) {
-                Some(HeapObject::List(l)) => Ok(l.len()),
-                _ => {
-                    return Err(InterpreterErrorMessage {
-                        error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
-                        loc: Some(indexed.loc.clone())
-                    })
-                }
-            }
+            Ok(state.heap.get_list(*ptr, Some(&indexed.loc))?.len())
         },
         _ => return Err(InterpreterErrorMessage {
             error: InterpreterError::TypeError { 
@@ -1321,13 +1276,7 @@ fn preprocess_args(
             let extra_args: Vec<Value> = match value.clone() {
                 Value::Tuple(elements) => elements,
                 Value::List(ptr) => {
-                    match state.heap.get(ptr) {
-                        Some(HeapObject::List(list)) => list.clone(),
-                        _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
-                            loc: Some(arg.loc.clone())
-                        })
-                    }
+                    state.heap.get_list(ptr, Some(&arg.loc))?.clone()
                 },
                 _ => return Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError {
@@ -1362,24 +1311,12 @@ fn preprocess_args(
             let value = eval_or_return_from_expr!(state, &arg.expr, program);
             match value.clone() {
                 Value::Dictionary(ptr) => {
-                    let index_ref = match state.heap.get(ptr) {
-                        Some(HeapObject::Dictionary(d)) => d,
-                        _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
-                            loc: Some(arg.loc.clone())
-                        })
-                    };
+                    let index_ref = state.heap.get_dict(ptr, Some(&arg.loc))?;
 
                     for (key, value) in index_ref.iter() {
                         match key.clone() {
                             Value::String(ptr) => {
-                                let s = match state.heap.get(ptr) {
-                                    Some(HeapObject::Str(s)) => s,
-                                    _ => return Err(InterpreterErrorMessage {
-                                        error: InterpreterError::InternalError("Expected String Heap Object".to_string()),
-                                        loc: Some(arg.loc.clone())
-                                    })
-                                };
+                                let s = state.heap.get_string(ptr, Some(&arg.loc))?;
 
                                 if !keyword_values.contains_key(&s.clone()) {
                                     keyword_values.insert(s.clone(), (None, value.clone()));
@@ -1536,23 +1473,14 @@ fn call_function(
 fn get_len(value: &Value, heap: &Heap, arg_loc: &ast::Loc) -> Result<i64, InterpreterErrorMessage> {
     match value {
         Value::String(ptr) => {
-            match heap.get(*ptr) {
-                Some(HeapObject::Str(s)) => Ok(s.chars().count() as i64),
-                _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap")), loc: Some(arg_loc.clone())})
-            }
+            Ok(heap.get_string(*ptr, Some(arg_loc))?.chars().count() as i64)
         },
         Value::Tuple(v) => Ok(v.len() as i64),
         Value::List(ptr) => {
-            match heap.get(*ptr) {
-                Some(HeapObject::List(l)) => Ok(l.len() as i64),
-                 _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap")), loc: Some(arg_loc.clone())})
-            }
+            Ok(heap.get_list(*ptr, Some(arg_loc))?.len() as i64)
         },
         Value::Dictionary(ptr) => {
-             match heap.get(*ptr) {
-                Some(HeapObject::Dictionary(d)) => Ok(d.len() as i64),
-                 _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap")), loc: Some(arg_loc.clone())})
-            }
+            Ok(heap.get_dict(*ptr, Some(arg_loc))?.len() as i64)
         },
         _ => Err(InterpreterErrorMessage {
             error: InterpreterError::TypeError {
@@ -1573,14 +1501,8 @@ fn deep_clone_value(state: &mut State, value: &Value) -> Result<Value, Interpret
         Value::NameSpacePtr(_) => Ok(value.clone()),
 
         Value::String(ptr) => {
-            let s = match state.heap.get(*ptr) {
-                Some(HeapObject::Str(s)) => s.clone(),
-                _ => return Err(InterpreterErrorMessage {
-                    error: InterpreterError::InternalError("Expected String Heap Object".to_string()),
-                    loc: None // We don't have location context here
-                })
-            };
-            let new_ptr = state.heap.intern_string(s);
+            let s = state.heap.get_string(*ptr, None)?;
+            let new_ptr = state.heap.intern_string(s.clone());
             Ok(Value::String(new_ptr))
         },
 
@@ -1592,13 +1514,7 @@ fn deep_clone_value(state: &mut State, value: &Value) -> Result<Value, Interpret
         },
 
         Value::List(ptr) => {
-            let list = match state.heap.get(*ptr) {
-                Some(HeapObject::List(l)) => l.clone(), // Clone the Vec (shallow)
-                _ => return Err(InterpreterErrorMessage {
-                    error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
-                    loc: None
-                })
-            };
+            let list = state.heap.get_list(*ptr, None)?.clone();
             let new_list = list.iter()
                 .map(|v| deep_clone_value(state, v))
                 .collect::<Result<Vec<Value>, _>>()?;
@@ -1608,13 +1524,7 @@ fn deep_clone_value(state: &mut State, value: &Value) -> Result<Value, Interpret
         },
 
         Value::Dictionary(ptr) => {
-            let dict = match state.heap.get(*ptr) {
-                Some(HeapObject::Dictionary(d)) => d.clone(), // Clone the HashMap (shallow)
-                _ => return Err(InterpreterErrorMessage {
-                    error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
-                    loc: None
-                })
-            };
+            let dict = state.heap.get_dict(*ptr, None)?.clone();
             let mut new_dict = HashMap::new();
             for (k, v) in dict.iter() {
                 let new_k = deep_clone_value(state, k)?;
@@ -1627,14 +1537,10 @@ fn deep_clone_value(state: &mut State, value: &Value) -> Result<Value, Interpret
         },
 
         Value::Lambda(ptr) => {
-            let lambda_obj = match state.heap.get(*ptr) {
-                Some(HeapObject::Lambda {..}) => state.heap.get(*ptr).unwrap().clone(),
-                _ => return Err(InterpreterErrorMessage {
-                    error: InterpreterError::InternalError("Expected Lambda Heap Object".to_string()),
-                    loc: None
-                })
+            let lambda_obj = match state.heap.get_lambda(*ptr, None)? {
+                (args, expr) => (args.clone(), expr.clone())
             };
-            let new_ptr = state.heap.alloc(lambda_obj);
+            let new_ptr = state.heap.alloc(HeapObject::Lambda { arguments: lambda_obj.0, expr: Box::new(lambda_obj.1) });
             Ok(Value::Lambda(new_ptr))
         }
     }
@@ -1668,10 +1574,7 @@ fn call_builtin(
             };
 
             let values = match args_map.get("args").unwrap() {
-                Value::List(ptr) => match state.heap.get(*ptr) {
-                    Some(HeapObject::List(l)) => l,
-                    _ => unreachable!()
-                },
+                Value::List(ptr) => state.heap.get_list(*ptr, None)?,
                 _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
             };
             
@@ -1686,10 +1589,7 @@ fn call_builtin(
                     Value::Bool(b) => Value::Int(if *b { 1 } else { 0 }),
                     Value::String(ptr) => {
                         // Retrieve string content from the heap
-                        let s = match state.heap.get(*ptr) {
-                            Some(HeapObject::Str(s)) => s,
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
-                        };
+                        let s = state.heap.get_string(*ptr, None)?;
                         
                         // Attempt to parse the string
                         match s.parse::<i64>() {
@@ -1735,10 +1635,7 @@ fn call_builtin(
             };
 
             let values = match args_map.get("args").unwrap() {
-                Value::List(ptr) => match state.heap.get(*ptr) {
-                    Some(HeapObject::List(l)) => l,
-                    _ => unreachable!()
-                },
+                Value::List(ptr) => state.heap.get_list(*ptr, None)?,
                 _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
             };
 
@@ -1770,10 +1667,7 @@ fn call_builtin(
             };
 
             let values = match args_map.get("args").unwrap() {
-                Value::List(ptr) => match state.heap.get(*ptr) {
-                    Some(HeapObject::List(l)) => l,
-                    _ => unreachable!()
-                },
+                Value::List(ptr) => state.heap.get_list(*ptr, None)?,
                 _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
             };
 
@@ -1806,10 +1700,7 @@ fn call_builtin(
             };
 
             let values = match args_map.get("args").unwrap() {
-                Value::List(ptr) => match state.heap.get(*ptr) {
-                    Some(HeapObject::List(l)) => l,
-                    _ => unreachable!()
-                },
+                Value::List(ptr) => state.heap.get_list(*ptr, None)?,
                 _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
             };
 
@@ -1827,28 +1718,17 @@ fn call_builtin(
                         iterable_elements = v.clone();
                     },
                     Value::List(ptr) => {
-                        let l = match state.heap.get(*ptr) {
-                            Some(HeapObject::List(l)) => l,
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap for Value::List")), loc: Some(loc.clone())})
-                        };
-                        iterable_elements = l.clone();
+                        iterable_elements = state.heap.get_list(*ptr, Some(&loc))?.clone();
                     },
                     Value::String(ptr) => {
-                        let s = match state.heap.get(*ptr) {
-                            Some(HeapObject::Str(s)) => s.clone(),
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
-                        };
+                        let s = state.heap.get_string(*ptr, Some(&loc))?.clone();
                         iterable_elements = s.chars().map(|c| {
                             let s_ptr = state.heap.intern_string(c.to_string());
                             Value::String(s_ptr)
                         }).collect();
                     },
                     Value::Dictionary(ptr) => {
-                        let d = match state.heap.get(*ptr) {
-                            Some(HeapObject::Dictionary(d)) => d,
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap for Value::Dictionary")), loc: Some(loc.clone())})
-                        };
-                        iterable_elements = d.keys().cloned().collect();
+                        iterable_elements = state.heap.get_dict(*ptr, Some(&loc))?.keys().cloned().collect();
                     },
                     _ => {
                         return Err(InterpreterErrorMessage {
@@ -1882,10 +1762,7 @@ fn call_builtin(
             };
 
             let values = match args_map.get("args").unwrap() {
-                Value::List(ptr) => match state.heap.get(*ptr) {
-                    Some(HeapObject::List(l)) => l,
-                    _ => unreachable!()
-                },
+                Value::List(ptr) => state.heap.get_list(*ptr, None)?,
                 _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
             };
             
@@ -1903,28 +1780,17 @@ fn call_builtin(
                         iterable_elements = v.clone();
                     },
                     Value::List(ptr) => {
-                        let l = match state.heap.get(*ptr) {
-                            Some(HeapObject::List(l)) => l,
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected in heap for Value::List")), loc: Some(loc.clone())})
-                        };
-                        iterable_elements = l.clone();
+                        iterable_elements = state.heap.get_list(*ptr, Some(&loc))?.clone();
                     },
                     Value::String(ptr) => {
-                        let s = match state.heap.get(*ptr) {
-                            Some(HeapObject::Str(s)) => s.clone(),
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("String expected in heap for Value::String")), loc: Some(loc.clone())})
-                        };
+                        let s = state.heap.get_string(*ptr, Some(&loc))?.clone();
                         iterable_elements = s.chars().map(|c| {
                             let s_ptr = state.heap.intern_string(c.to_string());
                             Value::String(s_ptr)
                         }).collect();
                     },
                     Value::Dictionary(ptr) => {
-                        let d = match state.heap.get(*ptr) {
-                            Some(HeapObject::Dictionary(d)) => d,
-                            _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("Dictionary expected in heap for Value::Dictionary")), loc: Some(loc.clone())})
-                        };
-                        iterable_elements = d.keys().cloned().collect();
+                        iterable_elements = state.heap.get_dict(*ptr, Some(&loc))?.keys().cloned().collect();
                     },
                     _ => {
                         return Err(InterpreterErrorMessage {
@@ -1935,7 +1801,7 @@ fn call_builtin(
                             loc: Some(loc.clone())
                         })
                     }
-                }
+                } 
             } else {
                 iterable_elements = values.clone();
             }
@@ -1960,12 +1826,7 @@ fn call_builtin(
             };
 
             let values = match args.get("l").unwrap() {
-                Value::List(ptr) => match state.heap.get(*ptr) {
-                    Some(HeapObject::List(l)) => {
-                        l
-                    },
-                    _ => unreachable!()
-                },
+                Value::List(ptr) => state.heap.get_list(*ptr, Some(&loc))?,
                 _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected")), loc: Some(loc.clone())})
             };
 
@@ -2048,13 +1909,8 @@ fn call_builtin(
 
             return match l_val {
                 Value::List(ptr) => {
-                    match state.heap.get_mut(*ptr) {
-                        Some(HeapObject::List(list_vec)) => {
-                            list_vec.push(v_val.clone());
-                            Ok(Ok(Value::Void))
-                        },
-                        _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected List Heap Object".to_string()), loc: Some(l_loc.clone())})
-                    }
+                    state.heap.get_list_mut(*ptr, Some(&l_loc))?.push(v_val.clone());
+                    Ok(Ok(Value::Void))
                 },
                 _ => Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError { expected: "list".to_string(), got: l_val.get_type_name() },
@@ -2082,14 +1938,9 @@ fn call_builtin(
 
             return match l_val {
                 Value::List(ptr) => {
-                    match state.heap.get_mut(*ptr) {
-                        Some(HeapObject::List(list_vec)) => {
-                            match list_vec.pop() {
-                                Some(value) => Ok(Ok(value)),
-                                _ => Err(InterpreterErrorMessage { error: InterpreterError::IndexOutOfBounds, loc: Some(loc.clone()) })
-                            }
-                        },
-                        _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected List Heap Object".to_string()), loc: Some(l_loc.clone())})
+                    match state.heap.get_list_mut(*ptr, Some(&l_loc))?.pop() {
+                        Some(value) => Ok(Ok(value)),
+                        _ => Err(InterpreterErrorMessage { error: InterpreterError::IndexOutOfBounds, loc: Some(loc.clone()) })
                     }
                 },
                 _ => Err(InterpreterErrorMessage {
@@ -2119,14 +1970,9 @@ fn call_builtin(
 
             return match d_val {
                 Value::Dictionary(ptr) => {
-                    match state.heap.get(*ptr) {
-                        Some(HeapObject::Dictionary(hash_map)) => {
-                            let keys_vec = hash_map.keys().cloned().collect::<Vec<Value>>();
-                            let new_list_ptr = state.heap.alloc(HeapObject::List(keys_vec));
-                            Ok(Ok(Value::List(new_list_ptr)))
-                        },
-                        _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()), loc: Some(d_loc.clone())})
-                    }
+                    let keys_vec = state.heap.get_dict(*ptr, Some(&d_loc))?.keys().cloned().collect::<Vec<Value>>();
+                    let new_list_ptr = state.heap.alloc(HeapObject::List(keys_vec));
+                    Ok(Ok(Value::List(new_list_ptr)))
                 },
                 _ => Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError { expected: "dict".to_string(), got: d_val.get_type_name() },
@@ -2154,14 +2000,9 @@ fn call_builtin(
 
             return match d_val {
                 Value::Dictionary(ptr) => {
-                    match state.heap.get(*ptr) {
-                        Some(HeapObject::Dictionary(hash_map)) => {
-                            let values_vec = hash_map.values().cloned().collect::<Vec<Value>>();
-                            let new_list_ptr = state.heap.alloc(HeapObject::List(values_vec));
-                            Ok(Ok(Value::List(new_list_ptr)))
-                        },
-                        _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()), loc: Some(d_loc.clone())})
-                    }
+                    let values_vec =  state.heap.get_dict(*ptr, Some(&d_loc))?.values().cloned().collect::<Vec<Value>>();
+                    let new_list_ptr = state.heap.alloc(HeapObject::List(values_vec));
+                    Ok(Ok(Value::List(new_list_ptr)))
                 },
                 _ => Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError { expected: "dict".to_string(), got: d_val.get_type_name() },
@@ -2189,16 +2030,11 @@ fn call_builtin(
 
             return match d_val {
                 Value::Dictionary(ptr) => {
-                    match state.heap.get(*ptr) {
-                        Some(HeapObject::Dictionary(hash_map)) => {
-                            let items_vec = hash_map.iter()
-                                .map(|(k, v)| Value::Tuple(vec![k.clone(), v.clone()]))
-                                .collect::<Vec<Value>>();
-                            let new_list_ptr = state.heap.alloc(HeapObject::List(items_vec));
-                            Ok(Ok(Value::List(new_list_ptr)))
-                        },
-                        _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()), loc: Some(d_loc.clone())})
-                    }
+                    let items_vec = state.heap.get_dict(*ptr, Some(&d_loc))?.iter()
+                        .map(|(k, v)| Value::Tuple(vec![k.clone(), v.clone()]))
+                        .collect::<Vec<Value>>();
+                    let new_list_ptr = state.heap.alloc(HeapObject::List(items_vec));
+                    Ok(Ok(Value::List(new_list_ptr)))
                 },
                 _ => Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError { expected: "dict".to_string(), got: d_val.get_type_name() },
@@ -2227,17 +2063,12 @@ fn call_builtin(
 
             return match f_val {
                 Value::String(ptr) => {
-                    match state.heap.get(*ptr) {
-                        Some(HeapObject::Str(file_path)) => {
-                            match read_file(file_path) {
-                                Ok(s) => {
-                                    let ptr = state.heap.intern_string(s);
-                                    return Ok(Ok(Value::String(ptr)));
-                                }
-                                Err(e) => Err(InterpreterErrorMessage {error: InterpreterError::FileError(format!("Something went wrong reading the file: {}", e)), loc: Some(f_loc.clone())})
-                            }
-                        },
-                        _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected String Heap Object".to_string()), loc: Some(f_loc.clone())})
+                    match read_file(state.heap.get_string(*ptr, Some(&f_loc))?) {
+                        Ok(s) => {
+                            let ptr = state.heap.intern_string(s);
+                            return Ok(Ok(Value::String(ptr)));
+                        }
+                        Err(e) => Err(InterpreterErrorMessage {error: InterpreterError::FileError(format!("Something went wrong reading the file: {}", e)), loc: Some(f_loc.clone())})
                     }
                 },
                 _ => Err(InterpreterErrorMessage {
@@ -2267,18 +2098,13 @@ fn call_builtin(
 
             return match f_val {
                 Value::String(ptr) => {
-                    match state.heap.get(*ptr) {
-                        Some(HeapObject::Str(file_path)) => {
-                            match read_file(file_path) {
-                                Ok(s) => {
-                                    let list = HeapObject::List(s.chars().map(|x| Value::String(state.heap.intern_string(x.to_string()))).collect());
-                                    let ptr = state.heap.alloc(list);
-                                    return Ok(Ok(Value::List(ptr)));
-                                }
-                                Err(e) => Err(InterpreterErrorMessage {error: InterpreterError::FileError(format!("Something went wrong reading the file: {}", e)), loc: Some(f_loc.clone())})
-                            }
-                        },
-                        _ => Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected String Heap Object".to_string()), loc: Some(f_loc.clone())})
+                    match read_file(state.heap.get_string(*ptr, Some(f_loc))?) {
+                        Ok(s) => {
+                            let list = HeapObject::List(s.chars().map(|x| Value::String(state.heap.intern_string(x.to_string()))).collect());
+                            let ptr = state.heap.alloc(list);
+                            return Ok(Ok(Value::List(ptr)));
+                        }
+                        Err(e) => Err(InterpreterErrorMessage {error: InterpreterError::FileError(format!("Something went wrong reading the file: {}", e)), loc: Some(f_loc.clone())})
                     }
                 },
                 _ => Err(InterpreterErrorMessage {
@@ -2315,11 +2141,8 @@ fn call_builtin(
 
             return match (s_val, sep_val) {
                 (Value::String(ptr), Value::String(ptr2)) => {
-                    let (s, sep) = match (state.heap.get(*ptr), state.heap.get(*ptr2)) {
-                        (Some(HeapObject::Str(s_ref)), Some(HeapObject::Str(sep_ref))) => {
-                            (s_ref.clone(), sep_ref.clone())
-                        },
-                        _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError("Expected String Heap Object".to_string()), loc: Some(s_loc.clone())})
+                    let (s, sep) = match (state.heap.get_string(*ptr, Some(&s_loc))?, state.heap.get_string(*ptr2, Some(&sep_loc))?) {
+                        (s, sep) => (s.clone(), sep.clone())
                     };
 
                     let sep_list: Vec<Value> = s.split(&sep).map(|str| {let ptr= state.heap.intern_string(str.to_string()); Value::String(ptr)}).collect();
@@ -2349,10 +2172,7 @@ fn call_builtin(
             };
 
             let values = match args_map.get("args").unwrap() {
-                Value::List(ptr) => match state.heap.get(*ptr) {
-                    Some(HeapObject::List(l)) => l,
-                    _ => unreachable!()
-                },
+                Value::List(ptr) => state.heap.get_list(*ptr, None)?,
                 _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
             };
 
@@ -2429,17 +2249,7 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
                                 loc: Some(indexer.loc.clone())
                             })
                         }
-                        match state.heap.get_mut(ptr) {
-                            Some(HeapObject::Dictionary(dict)) => {
-                                dict.insert(original_indexer_value, value);
-                            },
-                            _ => {
-                                return Err(InterpreterErrorMessage {
-                                    error: InterpreterError::InternalError("Expected Dictionary Heap Object".to_string()),
-                                    loc: Some(indexed.loc.clone())
-                                })
-                            }
-                        }
+                        state.heap.get_dict_mut(ptr, Some(&indexed.loc))?.insert(original_indexer_value, value);
 
                         return Ok(StatementReturn::None);
                     }
@@ -2485,12 +2295,7 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
                             });
                         },
                         Value::List(ptr) => {
-                            match state.heap.get_mut(ptr) {
-                                Some(HeapObject::List(l)) => {
-                                    l[index] = value;
-                                },
-                                _ => unreachable!()
-                            }
+                            state.heap.get_list_mut(ptr, None)?[index] = value;
                         },
                         _ => unreachable!()
                     }
@@ -2625,13 +2430,7 @@ fn unpack_elements(state: &State, variables: &Vec<ast::LocExpr>, value: Value, v
     let values = match value.clone() {
         Value::Tuple(elements) => elements,
         Value::List(ptr) => {
-            match state.heap.get(ptr) {
-                Some(HeapObject::List(elements)) => elements.clone(),
-                _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::InternalError("Expected List Heap Object".to_string()),
-                            loc: Some(value_loc.clone())
-                        }),
-            }
+            state.heap.get_list(ptr, Some(&value_loc))?.clone()
         },
         _ => return Err(InterpreterErrorMessage {
                             error: InterpreterError::TypeError { 
