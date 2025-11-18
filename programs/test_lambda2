@@ -1,0 +1,39 @@
+
+map(f, list) {
+    new = [];
+    for e in list {
+        new.push(f(e));
+    }
+    new
+}
+
+filter(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            new.push(e);
+        }
+    }
+    new
+}
+
+fold(step, start, list) {
+    if list == [] {
+        return start;
+    } else {
+        return fold(step, step(list[0], start), list[1:]);
+    }
+}
+
+curry(f) {
+    |x| {|y| {f(x, y)}}
+}
+
+main() {
+    l = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    assert(filter(|x| {x % 2 == 0}, l) == [2, 4, 6, 8, 10]);
+    assert(fold(|x,y| {x+y}, 0, l) == 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10);
+    add_one = curry(map)(|x| {x + 1});
+    assert(add_one([1, 2, 3]) == [2, 3, 4]);
+    assert(add_one([100, 200, 300]) == [101, 201, 301]);
+}
