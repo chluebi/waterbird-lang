@@ -582,6 +582,7 @@ fn resolve_variable_from_state(state: &mut State, v: &str, program: &ast::Progra
         "list" => return Ok(Some(Value::FunctionPtr(String::from("list")))),
         "dict" => return Ok(Some(Value::FunctionPtr(String::from("dict")))),
 
+        "clone" => return Ok(Some(Value::FunctionPtr(String::from("clone")))),
         "len" => return Ok(Some(Value::FunctionPtr(String::from("len")))),
         "print" => return Ok(Some(Value::FunctionPtr(String::from("print")))),
         "read" => return Ok(Some(Value::FunctionPtr(String::from("read")))),
@@ -824,7 +825,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             let left_value = eval_or_return_from_expr!(state, left, program);
             let right_value = eval_or_return_from_expr!(state, right, program);
             let left_value_type_name = left_value.get_type_name();
-            let right_value_type_name = left_value.get_type_name();
+            let right_value_type_name = right_value.get_type_name();
 
             // Handle Eq and Neq using deep_equals
             match op {
