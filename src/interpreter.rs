@@ -648,12 +648,41 @@ impl ast::LocExpr {
                 }
                 ret
             },
-            ast::Expr::Block { ref statements } => todo!(),
+            ast::Expr::Block { ref statements } => statements.iter().flat_map(ast::LocStmt::free_variables).collect(),
         }
     }
     
 }
 
+
+impl ast::LocStmt {
+
+    fn free_variables(statement: &Self) -> Vec<String> {
+        match statement.stmt {
+            ast::Stmt::Assignment { ref target, ref expr } => {
+                let mut ret = ast::LocExpr::free_variables(&target);
+                ret.extend(ast::LocExpr::free_variables(&expr));
+                ret
+            },
+            ast::Stmt::FunctionCall { ref expr } => ast::LocExpr::free_variables(&expr),
+            ast::Stmt::Return { ref expr } => ast::LocExpr::free_variables(&expr),
+            ast::Stmt::IfElse { ref cond, ref if_body, ref else_body } => {
+                let mut ret = ast::LocExpr::free_variables(cond);
+                ret.extend(ast::LocStmt::free_variables(if_body));
+                ret.extend(ast::LocStmt::free_variables(else_body));
+                ret
+            }, 
+            ast::Stmt::While { ref cond, ref body } => {
+                let mut ret = ast::LocExpr::free_variables(cond);
+                ret.extend(ast::LocStmt::free_variables(body));
+                ret
+            },
+            ast::Stmt::Block { ref statements } => statements.iter().flat_map(ast::LocStmt::free_variables).collect(),
+            ast::Stmt::Expression { ref expr } => ast::LocExpr::free_variables(&expr),
+        }
+    }
+
+}
 
 
 // we return Ok(Ok(Value)) if we just evaluate
@@ -1215,7 +1244,11 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
         ast::Expr::FunctionPtr(ref s) => {Ok(Ok(Value::FunctionPtr(s.clone())))},
         ast::Expr::Lambda { ref arguments, ref expr } => {
             let mut captured = HashMap::new();
+            let argument_names: Vec<&String> = arguments.iter().map(|x| &x.name).collect();
             for (k, v) in ast::LocExpr::free_variables(expr).iter().map(|v| (v, resolve_variable_from_state(state, v, program))) {
+                if argument_names.contains(&k) {
+                    continue;
+                }
                 let v = v?;
                 captured.insert(k.clone(), v.unwrap());
             }

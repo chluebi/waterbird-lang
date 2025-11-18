@@ -30,6 +30,8 @@ fn tests_basic() {
         ("programs/test_slice_list", Ok(interpreter::Value::Void)),
         ("programs/test_slice_string", Ok(interpreter::Value::Void)),
         ("programs/test_slice_tuple", Ok(interpreter::Value::Void)),
+        ("programs/test_lambda", Ok(interpreter::Value::Void)),
+        ("programs/test_lambda2", Ok(interpreter::Value::Void)),
     ];
 
     for (path, res) in programs {
