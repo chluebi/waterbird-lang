@@ -131,7 +131,8 @@ pub enum HeapObject {
     Dictionary(HashMap<Value,Value>),
     Lambda {
        arguments: Vec<ast::LambdaArgument>,
-       expr: Box<ast::LocExpr>
+       expr: Box<ast::LocExpr>,
+       captured: HashMap<String, Value>
     }
 }
 
@@ -185,9 +186,9 @@ impl Heap {
         }
     }
 
-    pub fn get_lambda(&self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<(&Vec<ast::LambdaArgument>, &ast::LocExpr), InterpreterErrorMessage> {
+    pub fn get_lambda(&self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<(&Vec<ast::LambdaArgument>, &ast::LocExpr, &HashMap<String, Value>), InterpreterErrorMessage> {
         match self.objects.get(ptr) {
-            Some(HeapObject::Lambda {arguments, expr}) => Ok((arguments, *&expr)),
+            Some(HeapObject::Lambda {arguments, expr, captured}) => Ok((arguments, *&expr, captured)),
             _ => Err(InterpreterErrorMessage {
                 error: InterpreterError::InternalError("Expected Lambda Heap Object".to_string()),
                 loc: loc.cloned()
@@ -351,6 +352,11 @@ impl Stack {
         let newest_frame = self.frames.last_mut().unwrap().last_mut().unwrap();
         newest_frame.insert(String::from(name), value)
     } 
+
+    pub fn shadow_variable(&mut self, name: &str, value: Value) -> Option<Value> {
+        let newest_frame = self.frames.last_mut().unwrap().last_mut().unwrap();
+        newest_frame.insert(String::from(name), value)
+    }
 
     pub fn contains_variable(&mut self, name: &str) -> bool {
         for frame in self.frames.last_mut().unwrap().iter().rev() {
@@ -546,48 +552,118 @@ fn deep_equals(left: &Value, right: &Value, heap: &Heap) -> bool {
     }
 }
 
+
+fn resolve_variable_from_state(state: &mut State, v: &str, program: &ast::Program) -> Result<Option<Value>, InterpreterErrorMessage> {
+    match state.stack.get_value(&v) {
+        Some(value) => return Ok(Some(value)),
+        _ => ()
+    }
+
+    match program.functions.get(v) {
+        Some(_) => return Ok(Some(Value::FunctionPtr(v.to_string()))),
+        _ => ()
+    }
+
+    match v {
+        "Int" => return Ok(Some(Value::NameSpacePtr(String::from("Int")))),
+        "Bool" => return Ok(Some(Value::NameSpacePtr(String::from("Bool")))),
+        "String" => return Ok(Some(Value::NameSpacePtr(String::from("String")))),
+        "Tuple" => return Ok(Some(Value::NameSpacePtr(String::from("Tuple")))),
+        "List" => return Ok(Some(Value::NameSpacePtr(String::from("List")))),
+        "Dict" => return Ok(Some(Value::NameSpacePtr(String::from("Dict")))),
+        _ => ()
+    }
+
+    match v {
+        "int" => return Ok(Some(Value::FunctionPtr(String::from("int")))),
+        "bool" => return Ok(Some(Value::FunctionPtr(String::from("bool")))),
+        "str" => return Ok(Some(Value::FunctionPtr(String::from("str")))),
+        "tuple" => return Ok(Some(Value::FunctionPtr(String::from("tuple")))),
+        "list" => return Ok(Some(Value::FunctionPtr(String::from("list")))),
+        "dict" => return Ok(Some(Value::FunctionPtr(String::from("dict")))),
+
+        "len" => return Ok(Some(Value::FunctionPtr(String::from("len")))),
+        "print" => return Ok(Some(Value::FunctionPtr(String::from("print")))),
+        "read" => return Ok(Some(Value::FunctionPtr(String::from("read")))),
+        "read_as_list" => return Ok(Some(Value::FunctionPtr(String::from("read_as_list")))),
+        "split" => return Ok(Some(Value::FunctionPtr(String::from("split")))),
+        "assert" => return Ok(Some(Value::FunctionPtr(String::from("assert")))),
+
+        _ => ()
+    }
+
+    Ok(None)
+}
+
+
+impl ast::LocExpr {
+
+    fn free_variables(expression: &Self) -> Vec<String> {
+        match expression.expr {
+            ast::Expr::Variable(ref v) => {
+                vec![v.clone()]
+            }
+            ast::Expr::DotAccess(ref expr, _) => ast::LocExpr::free_variables(&expr),
+            ast::Expr::Int(_) => vec![],
+            ast::Expr::Bool(_) => vec![],
+            ast::Expr::Str(_) => vec![],
+            ast::Expr::Tuple(_) => vec![],
+            ast::Expr::List(ref l) => l.iter().flat_map(ast::LocExpr::free_variables).collect(),
+            ast::Expr::Dictionary(ref d) => d.iter().flat_map(|(k,v)| {let mut k = ast::LocExpr::free_variables(k); k.extend(ast::LocExpr::free_variables(v)); k}).collect(),
+            ast::Expr::BinOp { ref op, ref left, ref right } => {let mut left = ast::LocExpr::free_variables(&left); left.extend(ast::LocExpr::free_variables(&right)); left},
+            ast::Expr::UnOp { ref op, ref expr } => ast::LocExpr::free_variables(&expr),
+            ast::Expr::FunctionCall { ref function, ref positional_arguments, ref variadic_argument, ref keyword_arguments, ref keyword_variadic_argument } => {
+                let mut ret = ast::LocExpr::free_variables(&function);
+                ret.extend(positional_arguments.iter().flat_map(|arg| ast::LocExpr::free_variables(&arg.expr)));
+                if let Some(variadic_argument) = variadic_argument {
+                    ret.extend(ast::LocExpr::free_variables(&variadic_argument.expr));
+                }
+                ret.extend(keyword_arguments.iter().flat_map(|arg| ast::LocExpr::free_variables(&arg.expr)));
+                if let Some(keyword_variadic_argument) = keyword_variadic_argument {
+                    ret.extend(ast::LocExpr::free_variables(&keyword_variadic_argument.expr));
+                }
+                ret
+            },
+            ast::Expr::Indexing { ref indexed, ref indexer } => {let mut indexed = ast::LocExpr::free_variables(&indexed); indexed.extend(ast::LocExpr::free_variables(&indexer)); indexed}
+            ast::Expr::Slice { ref indexed, ref indexer_start, ref indexer_border, ref indexer_step } => {
+                let mut ret = ast::LocExpr::free_variables(&indexed);
+                if let Some(indexer_start) = indexer_start {
+                    ret.extend(ast::LocExpr::free_variables(&indexer_start));
+                }
+                if let Some(indexer_border) = indexer_border {
+                    ret.extend(ast::LocExpr::free_variables(&indexer_border));
+                }
+                if let Some(indexer_step) = indexer_step {
+                    ret.extend(ast::LocExpr::free_variables(&indexer_step));
+                }
+                ret
+            },
+            ast::Expr::FunctionPtr(_) => vec![],
+            ast::Expr::Lambda { ref arguments, ref expr } => {
+                let mut ret = vec![];
+                for v in ast::LocExpr::free_variables(expr) {
+                    if !arguments.iter().any(|arg| arg.name == v) {
+                        ret.push(v);
+                    }
+                }
+                ret
+            },
+            ast::Expr::Block { ref statements } => todo!(),
+        }
+    }
+    
+}
+
+
+
 // we return Ok(Ok(Value)) if we just evaluate
 // we short-circuit with Ok(Err(Value)) as this means we have a direct return value
 pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &ast::Program) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
     
     match expression.expr {
         ast::Expr::Variable(ref v) => {
-            match state.stack.get_value(&v) {
-                Some(value) => return Ok(Ok(value)),
-                _ => ()
-            }
-
-            match program.functions.get(v) {
-                Some(_) => return Ok(Ok(Value::FunctionPtr(v.clone()))),
-                _ => ()
-            }
-
-            match v.as_str() {
-                "Int" => return Ok(Ok(Value::NameSpacePtr(String::from("Int")))),
-                "Bool" => return Ok(Ok(Value::NameSpacePtr(String::from("Bool")))),
-                "String" => return Ok(Ok(Value::NameSpacePtr(String::from("String")))),
-                "Tuple" => return Ok(Ok(Value::NameSpacePtr(String::from("Tuple")))),
-                "List" => return Ok(Ok(Value::NameSpacePtr(String::from("List")))),
-                "Dict" => return Ok(Ok(Value::NameSpacePtr(String::from("Dict")))),
-                _ => ()
-            }
-
-            match v.as_str() {
-                "int" => return Ok(Ok(Value::FunctionPtr(String::from("int")))),
-                "bool" => return Ok(Ok(Value::FunctionPtr(String::from("bool")))),
-                "str" => return Ok(Ok(Value::FunctionPtr(String::from("str")))),
-                "tuple" => return Ok(Ok(Value::FunctionPtr(String::from("tuple")))),
-                "list" => return Ok(Ok(Value::FunctionPtr(String::from("list")))),
-                "dict" => return Ok(Ok(Value::FunctionPtr(String::from("dict")))),
-
-                "len" => return Ok(Ok(Value::FunctionPtr(String::from("len")))),
-                "print" => return Ok(Ok(Value::FunctionPtr(String::from("print")))),
-                "read" => return Ok(Ok(Value::FunctionPtr(String::from("read")))),
-                "read_as_list" => return Ok(Ok(Value::FunctionPtr(String::from("read_as_list")))),
-                "split" => return Ok(Ok(Value::FunctionPtr(String::from("split")))),
-                "assert" => return Ok(Ok(Value::FunctionPtr(String::from("assert")))),
-
-                _ => ()
+            if let Some(v) = resolve_variable_from_state(state, v, program)? {
+                return Ok(Ok(v));
             }
 
             Err(InterpreterErrorMessage {
@@ -917,8 +993,8 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             Err(value) => return Ok(Err(value))
                         };
 
-                        let (arguments, expr) = match state.heap.get_lambda(ptr, Some(&function.loc))? {
-                            (arguments, expr) => (arguments.clone(), expr.clone())
+                        let (arguments, expr, captured) = match state.heap.get_lambda(ptr, Some(&function.loc))? {
+                            (arguments, expr, captured) => (arguments.clone(), expr.clone(), captured.clone())
                         };
 
                         if argument_values.len() < arguments.len() {
@@ -947,8 +1023,9 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         let new_values: HashMap<String, Value> = arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
 
                         state.stack.new_function_context();
-
-                        let _ = new_values.into_iter().for_each(|(n,v)| {state.stack.update_variable(&n, v);});
+                        
+                        let _ = captured.into_iter().for_each(|(n, v)| {state.stack.shadow_variable(&n, v);});
+                        let _ = new_values.into_iter().for_each(|(n,v)| {state.stack.shadow_variable(&n, v);});
                         
                         let value: Result<Result<Value, Value>, InterpreterErrorMessage> = match eval_expression(state, &expr, program) {
                             Ok(Ok(value)) | Ok(Err(value)) => Ok(Ok(value)),
@@ -1137,7 +1214,13 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
         }
         ast::Expr::FunctionPtr(ref s) => {Ok(Ok(Value::FunctionPtr(s.clone())))},
         ast::Expr::Lambda { ref arguments, ref expr } => {
-            let ptr = state.heap.alloc(HeapObject::Lambda {arguments: arguments.clone(), expr: expr.clone()});
+            let mut captured = HashMap::new();
+            for (k, v) in ast::LocExpr::free_variables(expr).iter().map(|v| (v, resolve_variable_from_state(state, v, program))) {
+                let v = v?;
+                captured.insert(k.clone(), v.unwrap());
+            }
+
+            let ptr = state.heap.alloc(HeapObject::Lambda {arguments: arguments.clone(), expr: expr.clone(), captured: captured});
             Ok(Ok(Value::Lambda(ptr)))
         },
         ast::Expr::Block { ref statements } => {
@@ -1450,7 +1533,7 @@ fn call_function(
 
     state.stack.new_function_context();
 
-    new_values.into_iter().for_each(|(n,v)| {state.stack.update_variable(&n, v);});
+    new_values.into_iter().for_each(|(n,v)| {state.stack.shadow_variable(&n, v);});
 
     let value = run_statement(state, &function.body, program);
 
@@ -1538,9 +1621,9 @@ fn deep_clone_value(state: &mut State, value: &Value) -> Result<Value, Interpret
 
         Value::Lambda(ptr) => {
             let lambda_obj = match state.heap.get_lambda(*ptr, None)? {
-                (args, expr) => (args.clone(), expr.clone())
+                (args, expr, captured) => (args.clone(), expr.clone(), captured.clone())
             };
-            let new_ptr = state.heap.alloc(HeapObject::Lambda { arguments: lambda_obj.0, expr: Box::new(lambda_obj.1) });
+            let new_ptr = state.heap.alloc(HeapObject::Lambda { arguments: lambda_obj.0, expr: Box::new(lambda_obj.1), captured: lambda_obj.2 });
             Ok(Value::Lambda(new_ptr))
         }
     }
