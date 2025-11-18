@@ -11,5 +11,5 @@ mod runner;
 
 
 pub fn main() {
-    runner::run("programs/aoc_2023_1".to_string());
+    runner::run("programs/test_lambda".to_string());
 }

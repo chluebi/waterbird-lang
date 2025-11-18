@@ -116,6 +116,7 @@ ExprBlock: parse_ast::LocExpr = {
 
 
 
+
 Statements: Vec<parse_ast::LocStmt> = {
     <stmt:Statement> ";" => vec![stmt],
     <cf:ControlFlow> => cf,
@@ -454,10 +455,43 @@ CallArgument: parse_ast::LocCallArgument = {
     }
 };
 
+LambdaArgument: parse_ast::LambdaArgument = {
+    <start: @L> <i:Ident> <end: @R> => parse_ast::LambdaArgument{
+        name: i,
+        loc: start..end
+    }
+};
+
+LambdaArguments: Vec<parse_ast::LambdaArgument> = {
+    <arg:LambdaArgument> "," <args:LambdaArguments> => {
+        let mut args = args;
+        args.insert(0, arg);
+        args
+    },
+    <arg:LambdaArgument> => vec![arg],
+    => vec![]
+};
+
+Lambda: parse_ast::LocExpr = {
+    <start: @L> "|" <args:LambdaArguments> "|" "{" <b:ExprStatements> "}" <end: @R> => {
+        parse_ast::LocExpr {
+            expr: parse_ast::Expr::Lambda {
+                arguments: args,
+                expr: Box::new(parse_ast::LocExpr {
+                    expr: parse_ast::Expr::Block { statements: b },
+                    loc: start..end
+                })
+            },
+            loc: start..end
+        }
+    }
+}
+
 Expression: parse_ast::LocExpr = {
     #[precedence(level="0")]
     Term,
     ExprBlock,
+    Lambda,
     #[precedence(level="1")] #[assoc(side="left")]
     <start: @L> <e:Expression> "." <i:Ident>  <end: @R> => {
         return parse_ast::LocExpr {
@@ -727,6 +761,7 @@ match {
     "[",
     "]",
     "#{",
+    "|",
     "get",
     "{",
     "}",
