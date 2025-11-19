@@ -241,6 +241,11 @@ pub enum Expr {
     Str(String),
     Tuple(Vec<LocExpr>),
     List(Vec<LocExpr>),
+    ListComprehension {
+        element_expr: Box<LocExpr>,
+        elemement_pattern: Box<LocExpr>,
+        iterable: Box<LocExpr>
+    },
     Dictionary(Vec<(LocExpr,LocExpr)>),
     BinOp {
         op: BinOp,
@@ -288,6 +293,68 @@ impl Expr {
             },
             Expr::List(v) => {
                 Ok(ast::Expr::List(v.into_iter().map(LocExpr::preprocess).collect::<Result<_,_>>()?))
+            },
+            Expr::ListComprehension { element_expr, elemement_pattern, iterable } => {
+                let new_list = get_unique_var("new_list");
+                let new_list_var = LocExpr {
+                    expr: Expr::Variable(new_list.clone()),
+                    loc: element_expr.loc.clone(),
+                };
+                let push_var = LocExpr {
+                    expr: Expr::DotAccess(
+                        Box::new(LocExpr {
+                            expr: Expr::Variable("List".to_string()),
+                            loc: element_expr.loc.clone()
+                        }), "push".to_string()
+                    ),
+                    loc: element_expr.loc.clone()
+                };
+
+                let init_new_list = LocStmt {
+                    stmt: Stmt::Assignment { 
+                        target: new_list_var.clone(),
+                        expr: LocExpr {
+                            expr: Expr::List(vec![]),
+                            loc: element_expr.loc.clone(),
+                        }
+                    },
+                    loc: element_expr.loc.clone()
+                };
+                let body = LocStmt {
+                    stmt: Stmt::Expression { 
+                        expr: LocExpr {
+                            expr: Expr::FunctionCall { function: Box::new(push_var), arguments: vec![
+                                LocCallArgument {
+                                    argument: CallArgument::PositionalArgument(new_list_var.clone()),
+                                    loc: element_expr.loc.clone()
+                                },
+                                LocCallArgument {
+                                    argument: CallArgument::PositionalArgument(*element_expr.clone()),
+                                    loc: element_expr.loc.clone()
+                                }
+                            ]},
+                            loc: element_expr.loc.clone()
+                        },
+                    },
+                    loc: element_expr.loc.clone()
+                };
+                let for_loop = LocStmt {
+                    stmt: Stmt::For { pattern: *elemement_pattern, iterable: *iterable, body: Box::new(body) },
+                    loc: element_expr.loc.clone()
+                };
+                let ret = LocStmt {
+                    stmt: Stmt::Expression { 
+                        expr: new_list_var.clone()
+                    },
+                    loc: element_expr.loc.clone()
+                };
+                Ok(ast::Expr::Block { 
+                    statements: vec![
+                        LocStmt::preprocess(init_new_list)?,
+                        LocStmt::preprocess(for_loop)?,
+                        LocStmt::preprocess(ret)?
+                    ]
+                })
             },
             Expr::Dictionary(v) => {
                 Ok(ast::Expr::Dictionary(
