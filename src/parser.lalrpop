@@ -668,7 +668,16 @@ Expression: parse_ast::LocExpr = {
             right: Box::new(r)
         },
         loc: start..end
-    }
+    },
+    #[precedence(level="99")] #[assoc(side="left")]
+    <start: @L> <if_expr: Expression> "if" <condition: Expression> "else" <else_expr: Expression> <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::Ternary {
+            condition: Box::new(condition),
+            if_expr: Box::new(if_expr),
+            else_expr: Box::new(else_expr)
+        },
+        loc: start..end
+    },
 }
 
 IndexExpression: parse_ast::LocExpr = {

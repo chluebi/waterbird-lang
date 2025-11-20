@@ -59,10 +59,7 @@ part1(inp) {
 
 
 max(x, y) {
-    if x > y {
-        return x;
-    }
-    return y;
+   return x if x > y else y; 
 }
 
 
