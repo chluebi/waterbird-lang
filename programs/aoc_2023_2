@@ -1,0 +1,97 @@
+map(f, list) {
+    new = [];
+    for e in list {
+        new.push(f(e));
+    }
+    new
+}
+
+filter(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            new.push(e);
+        }
+    }
+    new
+}
+
+fold(step, start, list) {
+    if list == [] {
+        return start;
+    } else {
+        return fold(step, step(list[0], start), list[1:]);
+    }
+}
+
+
+
+part1(inp) {
+    s = 0;
+    for line in split(inp, "\n") {
+        (game, data) = line.split(": ");
+        id = int(game.split(" ")[-1]);
+
+        valid = true;
+
+        for round in data.split("; ") {
+            sums = {
+                "red": 0,
+                "green": 0,
+                "blue": 0
+            };
+            for reveal in round.split(", ") {
+                (number, color) = reveal.split(" ");
+                sums[color] += int(number);
+            }
+
+            if sums["red"] > 12 || sums["green"] > 13 || sums["blue"] > 14 {
+                valid = false;
+            }
+        }
+
+        if valid {
+            s += id;
+        }
+    }
+    s
+}
+
+
+max(x, y) {
+    if x > y {
+        return x;
+    }
+    return y;
+}
+
+
+part2(inp) {
+    s = 0;
+    for line in split(inp, "\n") {
+        (game, data) = line.split(": ");
+        id = int(game.split(" ")[-1]);
+
+        sums = {
+            "red": 0,
+            "green": 0,
+            "blue": 0
+        };
+
+        for round in data.split("; ") {
+            
+            for reveal in round.split(", ") {
+                (number, color) = reveal.split(" ");
+                sums[color] = max(sums[color], int(number));
+            }
+        }
+
+        s += sums["red"] * sums["green"] * sums["blue"];
+    }
+    s
+}
+
+main() {
+    inp = read("test_data/aoc_2023_2");
+    (part1(inp), part2(inp))
+}

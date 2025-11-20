@@ -26,7 +26,6 @@ fn tests_basic() {
         ("programs/test_assert", Ok(interpreter::Value::Void)),
         ("programs/test_for", Ok(interpreter::Value::Void)),
         ("programs/test_expr_return", Ok(interpreter::Value::Int(1))),
-        ("programs/aoc_2023_1", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(55123), interpreter::Value::Int(55260)]))),
         ("programs/test_slice_list", Ok(interpreter::Value::Void)),
         ("programs/test_slice_string", Ok(interpreter::Value::Void)),
         ("programs/test_slice_tuple", Ok(interpreter::Value::Void)),
@@ -34,6 +33,8 @@ fn tests_basic() {
         ("programs/test_lambda2", Ok(interpreter::Value::Void)),
         ("programs/test_listcomp", Ok(interpreter::Value::Void)),
         ("programs/test_listcomp2", Ok(interpreter::Value::Void)),
+        ("programs/aoc_2023_1", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(55123), interpreter::Value::Int(55260)]))),
+        ("programs/aoc_2023_2", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(2449), interpreter::Value::Int(63981)]))),
     ];
 
     for (path, res) in programs {
