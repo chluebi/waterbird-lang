@@ -243,7 +243,7 @@ pub enum Expr {
     List(Vec<LocExpr>),
     ListComprehension {
         element_expr: Box<LocExpr>,
-        elemement_pattern: Box<LocExpr>,
+        element_pattern: Box<LocExpr>,
         iterable: Box<LocExpr>
     },
     Dictionary(Vec<(LocExpr,LocExpr)>),
@@ -294,7 +294,7 @@ impl Expr {
             Expr::List(v) => {
                 Ok(ast::Expr::List(v.into_iter().map(LocExpr::preprocess).collect::<Result<_,_>>()?))
             },
-            Expr::ListComprehension { element_expr, elemement_pattern, iterable } => {
+            Expr::ListComprehension { element_expr, element_pattern, iterable } => {
                 let new_list = get_unique_var("new_list");
                 let new_list_var = LocExpr {
                     expr: Expr::Variable(new_list.clone()),
@@ -339,7 +339,7 @@ impl Expr {
                     loc: element_expr.loc.clone()
                 };
                 let for_loop = LocStmt {
-                    stmt: Stmt::For { pattern: *elemement_pattern, iterable: *iterable, body: Box::new(body) },
+                    stmt: Stmt::For { pattern: *element_pattern, iterable: *iterable, body: Box::new(body) },
                     loc: element_expr.loc.clone()
                 };
                 let ret = LocStmt {

@@ -507,10 +507,6 @@ Expression: parse_ast::LocExpr = {
             loc: start..end
         };
     },
-    <start: @L> "[" <elts: CommaSeperatedExpressions> "]" <end: @R> => parse_ast::LocExpr {
-        expr: parse_ast::Expr::List(elts),
-        loc: start..end
-    },
     <start: @L> "{" <elts: CommaSeperatedMappings> "}" <end: @R> => parse_ast::LocExpr {
         expr: parse_ast::Expr::Dictionary(elts),
         loc: start..end
@@ -672,7 +668,7 @@ Expression: parse_ast::LocExpr = {
             right: Box::new(r)
         },
         loc: start..end
-    },
+    }
 }
 
 IndexExpression: parse_ast::LocExpr = {
@@ -703,6 +699,18 @@ Term: parse_ast::LocExpr = {
     },
     <start: @L> <s:String> <end: @R> => parse_ast::LocExpr {
         expr: parse_ast::Expr::Str(s),
+        loc: start..end
+    },
+    <start: @L> "[" <elts: CommaSeperatedExpressions> "]" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::List(elts),
+        loc: start..end
+    },
+    <start: @L> "[" <element_expr: Expression> "for" <pattern: PatternExpression> "in" <iterable: Expression> "]" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::ListComprehension {
+            element_expr: Box::new(element_expr),
+            element_pattern: Box::new(pattern),
+            iterable: Box::new(iterable)
+        },
         loc: start..end
     },
     "(" <e: Expression> ")" => e,
