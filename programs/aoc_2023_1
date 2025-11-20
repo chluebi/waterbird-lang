@@ -6,11 +6,87 @@ get_first_int(l) {
     }
 }
 
-main() {
-    inp = read("test_data/aoc_2023_1");
+part1(inp) {
     s = 0;
     for line in split(inp, "\n") {
         s += int(str(get_first_int(line)) + str(get_first_int(line[::-1])));
     }
     s
+}
+
+get_first_int_or_word(l) {
+    words = {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9
+    };
+
+    for i in range(len(l)) {
+        for (key, value) in words.items() {
+            if i+key.len() <= len(l) && l[i:i+key.len()] == key {
+                return value;
+            }
+        }
+    }
+}
+
+get_last_int_or_word(l) {
+    words = {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "one": 1,
+        "two": 2,
+        "three": 3,
+        "four": 4,
+        "five": 5,
+        "six": 6,
+        "seven": 7,
+        "eight": 8,
+        "nine": 9
+    };
+
+    for i in range(len(l),0,-1) {
+        for (key, value) in words.items() {
+            if i-key.len() >= 0 {
+                if l[i-key.len():i] == key {
+                    return value;
+                }
+            }
+        }
+    }
+}
+
+part2(inp) {
+    s = 0;
+    for line in split(inp, "\n") {
+        s += int(str(get_first_int_or_word(line)) + str(get_last_int_or_word(line)));
+    }
+    s
+}
+
+main() {
+    inp = read("test_data/aoc_2023_1");
+    (part1(inp), part2(inp))
 }
