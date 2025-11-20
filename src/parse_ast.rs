@@ -246,6 +246,11 @@ pub enum Expr {
         element_pattern: Box<LocExpr>,
         iterable: Box<LocExpr>
     },
+    Ternary {
+        condition: Box<LocExpr>,
+        if_expr: Box<LocExpr>,
+        else_expr: Box<LocExpr>
+    },
     Dictionary(Vec<(LocExpr,LocExpr)>),
     BinOp {
         op: BinOp,
@@ -354,6 +359,62 @@ impl Expr {
                         LocStmt::preprocess(for_loop)?,
                         LocStmt::preprocess(ret)?
                     ]
+                })
+            },
+            Expr::Ternary { condition, if_expr, else_expr } => {
+                let ret = get_unique_var("ret");
+                let ret_var = LocExpr {
+                    expr: Expr::Variable(ret.clone()),
+                    loc: if_expr.loc.clone(),
+                };
+
+                let init_ret = LocStmt {
+                    stmt: Stmt::Assignment { 
+                        target: ret_var.clone(),
+                        expr: LocExpr {
+                            expr: Expr::Int(0),
+                            loc: if_expr.loc.clone(),
+                        }
+                    },
+                    loc: if_expr.loc.clone()
+                };
+
+                let if_ret = LocStmt {
+                    stmt: Stmt::Assignment { 
+                        target: ret_var.clone(),
+                        expr: *if_expr.clone() 
+                    },
+                    loc: if_expr.loc.clone()
+                };
+
+                let else_ret = LocStmt {
+                    stmt: Stmt::Assignment { 
+                        target: ret_var.clone(),
+                        expr: *else_expr.clone() 
+                    },
+                    loc: else_expr.loc.clone()
+                };
+
+                let if_stmt = LocStmt {
+                    stmt: Stmt::IfElse { cond: *condition,
+                        if_body: Box::new(if_ret),
+                        else_body: Box::new(else_ret)
+                    },
+                    loc: else_expr.loc.clone()
+                };
+
+                let ret_stmt = LocStmt {
+                    stmt: Stmt::Expression { 
+                        expr: ret_var,
+                    },
+                    loc: else_expr.loc.clone()
+                };
+
+                Ok(ast::Expr::Block { statements: vec![
+                    LocStmt::preprocess(init_ret)?, 
+                    LocStmt::preprocess(if_stmt)?,
+                    LocStmt::preprocess(ret_stmt)?
+                    ] 
                 })
             },
             Expr::Dictionary(v) => {
