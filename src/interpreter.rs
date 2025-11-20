@@ -587,7 +587,10 @@ fn resolve_variable_from_state(state: &mut State, v: &str, program: &ast::Progra
         "print" => return Ok(Some(Value::FunctionPtr(String::from("print")))),
         "read" => return Ok(Some(Value::FunctionPtr(String::from("read")))),
         "read_as_list" => return Ok(Some(Value::FunctionPtr(String::from("read_as_list")))),
+
         "split" => return Ok(Some(Value::FunctionPtr(String::from("split")))),
+        "range" => return Ok(Some(Value::FunctionPtr(String::from("range")))),
+
         "assert" => return Ok(Some(Value::FunctionPtr(String::from("assert")))),
 
         _ => ()
@@ -2194,6 +2197,65 @@ fn call_builtin(
                 })
             }
         },
+
+        "range" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![],
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args = match args {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let values = match args.get("args").unwrap() {
+                Value::List(ptr) => state.heap.get_list(*ptr, Some(&loc))?,
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected")), loc: Some(loc.clone())})
+            };
+
+            let values: Result<Vec<i64>, InterpreterErrorMessage> = values.iter().map(|x| {
+                match x {
+                    Value::Int(i) => Ok(i.clone()),
+                    _ => Err(InterpreterErrorMessage {error: InterpreterError::ArgumentError(String::from("Range expects int arguments")), loc: Some(loc.clone())})
+                }
+            }).collect();
+
+            let values = values?;
+
+            let (start, end, step) = match values.len() {
+                1 => (0, values[0], 1),
+                2 => (values[0], values[1], 1),
+                3 => (values[0], values[1], values[2]),
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::ArgumentError(String::from("Range expects 1 to 3 arguments")), loc: Some(loc.clone())})
+            };
+
+            if step == 0 {
+                return Err(InterpreterErrorMessage {error: InterpreterError::ArgumentError(String::from("Step argument cannot be 0")), loc: Some(loc.clone())})
+            }
+
+            let mut result = Vec::new();
+            let mut i = start;
+
+            if step > 0 {
+                while i < end {
+                    result.push(i);
+                    i += step;
+                }
+            } else {
+                while i > end {
+                    result.push(i);
+                    i += step;
+                }
+            }
+
+            let result: Vec<Value> = result.iter().map(|x| Value::Int(*x)).collect();
+            return Ok(Ok(Value::List(state.heap.alloc(HeapObject::List(result)))));
+        }
 
         "read_as_list" => {
             let contract = ast::FunctionPrototype {
