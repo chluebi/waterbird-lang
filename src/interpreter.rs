@@ -846,6 +846,9 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                         (needle, Value::List(ptr)) => {
                             return Ok(Ok(Value::Bool(state.heap.get_list(ptr, Some(&right.loc))?.iter().any(|val| val == &needle))))
                         },
+                        (needle, Value::Dictionary(ptr)) => {
+                            return Ok(Ok(Value::Bool(state.heap.get_dict(ptr, Some(&right.loc))?.contains_key(&needle))))
+                        },
                         (Value::String(needle_ptr), Value::String(haystack_ptr)) => {
                             let (needle, haystack) = (state.heap.get_string(needle_ptr, Some(&right.loc))?, state.heap.get_string(haystack_ptr, Some(&left.loc))?);
                             return Ok(Ok(Value::Bool(haystack.contains(needle))))
@@ -1254,7 +1257,11 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     continue;
                 }
                 let v = v?;
-                captured.insert(k.clone(), v.unwrap());
+
+                match v {
+                    Some(v) => captured.insert(k.clone(), v),
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::VariableNotFound(k.clone()), loc: Some(expression.loc.clone())})
+                };
             }
 
             let ptr = state.heap.alloc(HeapObject::Lambda {arguments: arguments.clone(), expr: expr.clone(), captured: captured});

@@ -1,0 +1,172 @@
+map(f, list) {
+    new = [];
+    for e in list {
+        new.push(f(e));
+    }
+    new
+}
+
+filter(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            new.push(e);
+        }
+    }
+    new
+}
+
+any(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fold(step, start, list) {
+    if list == [] {
+        return start;
+    } else {
+        return fold(step, step(list[0], start), list[1:]);
+    }
+}
+
+
+surroundings_pred(p, inp, y, x) {
+    for dy in [-1, 0, 1] {
+        for dx in [-1, 0, 1] {
+            if (dx, dy) != (0, 0) && y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+                if p(inp[y+dy][x+dx]) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+surroundings(inp, y, x) {
+    ret = [];
+
+    for dy in [-1, 0, 1] {
+        for dx in [-1, 0, 1] {
+            if (dx, dy) != (0, 0) && y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+                ret.push(((y+dy), (x+dx)));
+            }
+        }
+    }
+
+    return ret;
+}
+
+
+part1(inp) {
+    r = map(str, range(10));
+    pred = |s|{!(s in r) && s != "."};
+
+    s = 0;
+
+    for y in range(len(inp)) {
+        x = 0;
+
+        while x < len(inp[y]) {
+            num = "";
+            dx = 0;
+            while x+dx < len(inp[y]) && inp[y][x+dx] in map(str, range(10)) {
+                num += inp[y][x+dx];
+                dx++;
+            }
+
+            if num != "" {
+                print(num);
+                pos_list = [];
+                for i in range(dx) {
+                    pos_list.push((y, x+i));
+                }
+                if filter(|b|{b}, map(|pos| {
+                    (y, x) = pos;
+                    surroundings_pred(pred, inp, y, x)
+                }, pos_list)) != [] {
+                    s += int(num);
+                }
+            }
+            x += dx + 1;
+        }
+    } 
+
+    s
+}
+
+
+
+part2(inp) {
+    r = map(str, range(10));
+    pred = |s|{s == "*"};
+
+    s = 0;
+
+    gears = {};
+
+    for y in range(len(inp)) {
+        x = 0;
+
+        while x < len(inp[y]) {
+            num = "";
+            dx = 0;
+            while x+dx < len(inp[y]) && inp[y][x+dx] in map(str, range(10)) {
+                num += inp[y][x+dx];
+                dx++;
+            }
+
+            if num != "" {
+                num = int(num);
+                print(num);
+                pos_list = [];
+                for i in range(dx) {
+                    pos_list.push((y, x+i));
+                }
+
+                surr = [];
+                for (y_num, x_num) in pos_list {
+                    num_pos = (y_num, x_num);
+                    for (y2, x2) in surroundings(inp, *list(num_pos)) {
+                        if pred(inp[y2][x2]) {
+                            gear_pos = (y2, x2);
+                            if gear_pos in gears {
+                                if !(any(|elt| {
+                                    elt[0] == pos_list[0]
+                                }, gears[gear_pos])) {
+                                    gears[gear_pos].push((pos_list[0], num));
+                                }
+                            } else {
+                                gears[gear_pos] = [(pos_list[0], num)];
+                            }
+                        }
+                    }
+                }
+            }
+            x += dx + 1;
+        }
+    }
+
+    print(gears);
+
+    for (gear_pos, nums) in gears.items() {
+        print(gear_pos, len(nums));
+        if len(nums) == 2 {
+            s += nums[0][1] * nums[1][1];
+        }
+    } 
+
+    s
+}
+
+main() {
+    inp = read("test_data/aoc_2023_3");
+    inp = inp.split("\n");
+    (part1(inp), part2(inp))
+}
