@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::fs::File;
 use std::io::{self, Read};
@@ -602,16 +602,40 @@ fn resolve_variable_from_state(state: &mut State, v: &str, program: &ast::Progra
 
 impl ast::LocExpr {
 
-    fn free_variables(expression: &Self) -> Vec<String> {
-        match expression.expr {
+    fn target_defined_variables(self: &Self) -> HashSet<String> {
+        match &self.expr {
+            ast::Expr::Variable(v) => vec![v.clone()].into_iter().collect(),
+            ast::Expr::Tuple(vars) | ast::Expr::List(vars) => vars.iter().flat_map(ast::LocExpr::target_defined_variables).collect(),
+            _ => HashSet::new()
+        }
+    }
+
+    fn target_used_variables(self: &Self) -> HashSet<String> {
+        match &self.expr {
+            ast::Expr::Variable(_) => HashSet::new(),
+            ast::Expr::Indexing {indexed, indexer } => {
+                let mut ret = ast::LocExpr::free_variables(indexed);
+                ret.extend(ast::LocExpr::free_variables(indexer));
+                ret
+            },
+            ast::Expr::DotAccess(expr, _) => ast::LocExpr::free_variables(expr),
+            ast::Expr::Tuple(vars) | ast::Expr::List(vars) => {
+                vars.iter().flat_map(ast::LocExpr::target_used_variables).collect()
+            },
+            _ => unreachable!()
+        }
+    }
+
+    fn free_variables(self: &Self) -> HashSet<String> {
+        match self.expr {
             ast::Expr::Variable(ref v) => {
-                vec![v.clone()]
+                vec![v.clone()].into_iter().collect()
             }
             ast::Expr::DotAccess(ref expr, _) => ast::LocExpr::free_variables(&expr),
-            ast::Expr::Int(_) => vec![],
-            ast::Expr::Bool(_) => vec![],
-            ast::Expr::Str(_) => vec![],
-            ast::Expr::Tuple(_) => vec![],
+            ast::Expr::Int(_) => HashSet::new(),
+            ast::Expr::Bool(_) => HashSet::new(),
+            ast::Expr::Str(_) => HashSet::new(),
+            ast::Expr::Tuple(ref elts) => elts.iter().flat_map(ast::LocExpr::free_variables).collect(),
             ast::Expr::List(ref l) => l.iter().flat_map(ast::LocExpr::free_variables).collect(),
             ast::Expr::Dictionary(ref d) => d.iter().flat_map(|(k,v)| {let mut k = ast::LocExpr::free_variables(k); k.extend(ast::LocExpr::free_variables(v)); k}).collect(),
             ast::Expr::BinOp { ref op, ref left, ref right } => {let mut left = ast::LocExpr::free_variables(&left); left.extend(ast::LocExpr::free_variables(&right)); left},
@@ -642,17 +666,34 @@ impl ast::LocExpr {
                 }
                 ret
             },
-            ast::Expr::FunctionPtr(_) => vec![],
+            ast::Expr::FunctionPtr(_) => HashSet::new(),
             ast::Expr::Lambda { ref arguments, ref expr } => {
-                let mut ret = vec![];
+                let mut ret = HashSet::new();
                 for v in ast::LocExpr::free_variables(expr) {
                     if !arguments.iter().any(|arg| arg.name == v) {
-                        ret.push(v);
+                        ret.insert(v);
                     }
                 }
                 ret
             },
-            ast::Expr::Block { ref statements } => statements.iter().flat_map(ast::LocStmt::free_variables).collect(),
+            ast::Expr::Block { ref statements } => {
+                let mut ret = HashSet::new();
+                let mut defined_in_scope = HashSet::new();
+
+                for stmt in statements {
+                    let stmt_free = ast::LocStmt::free_variables(stmt);
+
+                    for var in stmt_free {
+                        if !defined_in_scope.contains(&var) {
+                            ret.insert(var);
+                        }
+                    }
+
+                    let stmt_defined = ast::LocStmt::defined_variables(stmt);
+                    defined_in_scope.extend(stmt_defined);
+                }
+                ret
+            }
         }
     }
     
@@ -661,10 +702,17 @@ impl ast::LocExpr {
 
 impl ast::LocStmt {
 
-    fn free_variables(statement: &Self) -> Vec<String> {
-        match statement.stmt {
+    fn defined_variables(self: &Self) -> HashSet<String> {
+        match &self.stmt {
+            ast::Stmt::Assignment { target, .. } => target.target_defined_variables(),
+            _ => HashSet::new()
+        }
+    }
+
+    fn free_variables(self: &Self) -> HashSet<String> {
+        match self.stmt {
             ast::Stmt::Assignment { ref target, ref expr } => {
-                let mut ret = ast::LocExpr::free_variables(&target);
+                let mut ret = target.target_used_variables();
                 ret.extend(ast::LocExpr::free_variables(&expr));
                 ret
             },
@@ -681,7 +729,24 @@ impl ast::LocStmt {
                 ret.extend(ast::LocStmt::free_variables(body));
                 ret
             },
-            ast::Stmt::Block { ref statements } => statements.iter().flat_map(ast::LocStmt::free_variables).collect(),
+            ast::Stmt::Block { ref statements } => {
+                let mut ret = HashSet::new();
+                let mut defined_in_scope = HashSet::new();
+
+                for stmt in statements {
+                    let stmt_free = ast::LocStmt::free_variables(stmt);
+
+                    for var in stmt_free {
+                        if !defined_in_scope.contains(&var) {
+                            ret.insert(var);
+                        }
+                    }
+
+                    let stmt_defined = ast::LocStmt::defined_variables(stmt);
+                    defined_in_scope.extend(stmt_defined);
+                }
+                ret
+            },
             ast::Stmt::Expression { ref expr } => ast::LocExpr::free_variables(&expr),
         }
     }
