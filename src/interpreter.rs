@@ -592,6 +592,7 @@ fn resolve_variable_from_state(state: &mut State, v: &str, program: &ast::Progra
         "range" => return Ok(Some(Value::FunctionPtr(String::from("range")))),
 
         "assert" => return Ok(Some(Value::FunctionPtr(String::from("assert")))),
+        "dealloc" => return Ok(Some(Value::FunctionPtr(String::from("dealloc")))),
 
         _ => ()
     }
@@ -2441,6 +2442,36 @@ fn call_builtin(
                 }
             }
         },
+
+        "dealloc" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![
+                    ast::Argument {name: String::from("object"), arg_type: None, loc: 0..0},
+                ],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let val = args_map.get("object").unwrap();
+            let _loc = &positional_arguments.get(0).unwrap().loc;
+            
+
+            match val {
+                Value::String(ptr) | Value::List(ptr) | Value::Dictionary(ptr) | Value::Lambda(ptr) => {
+                    state.heap.free(*ptr);
+                    return Ok(Ok(Value::Void));
+                },
+                _ => ()
+            }
+        }
 
         _ => ()
     }
