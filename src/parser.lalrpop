@@ -479,8 +479,8 @@ CallArgument: parse_ast::LocCallArgument = {
 };
 
 LambdaArgument: parse_ast::LambdaArgument = {
-    <start: @L> <i:Ident> <end: @R> => parse_ast::LambdaArgument{
-        name: i,
+    <start: @L> <p:PatternTerm> <end: @R> => parse_ast::LambdaArgument{
+        expr: p,
         loc: start..end
     }
 };

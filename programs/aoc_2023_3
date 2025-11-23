@@ -80,8 +80,7 @@ surroundings_horizontal(inp, y, x, length) {
 
 
 part1(inp, numbers, symbols) {
-    sum(map(|elt|{
-        (y, x), num = elt;
+    sum(map(|((y, x), num)|{
         num if any_true([((y, x) in symbols) for y, x in surroundings_horizontal(inp, y, x, len(str(num)))]) else 0
     }, numbers.items()))
 }
@@ -91,8 +90,7 @@ part1(inp, numbers, symbols) {
 part2(inp, numbers, symbols) {
     gears = {};
 
-    map(|elt|{
-        (y, x), num = elt;
+    map(|((y, x), num)|{
         for sym_y, sym_x in surroundings_horizontal(inp, y, x, len(str(num))) {
             if inp[sym_y][sym_x] == "*" {
                 if (sym_y, sym_x) in gears {
