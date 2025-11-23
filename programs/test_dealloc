@@ -1,0 +1,12 @@
+main() {
+
+    for k in range(100) {
+        list = [range(100) for i in range(100)];
+        print(list[0][0]);
+        dealloc(list);
+        print(list);
+    }
+
+    0
+    
+}
