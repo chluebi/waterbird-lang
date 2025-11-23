@@ -35,6 +35,7 @@ fn tests_basic() {
         ("programs/test_listcomp2", Ok(interpreter::Value::Void)),
         ("programs/aoc_2023_1", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(55123), interpreter::Value::Int(55260)]))),
         ("programs/aoc_2023_2", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(2449), interpreter::Value::Int(63981)]))),
+        // likes to overflow the stack and take ~60s // ("programs/aoc_2023_3", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(528819), interpreter::Value::Int(80403602)]))),
     ];
 
     for (path, res) in programs {

@@ -49,35 +49,6 @@ sum(list) {
 }
 
 
-surroundings_pred(p, inp, y, x) {
-    for dy in [-1, 0, 1] {
-        for dx in [-1, 0, 1] {
-            if (dx, dy) != (0, 0) && y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
-                if p(inp[y+dy][x+dx]) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
-surroundings(inp, y, x) {
-    ret = [];
-
-    for dy in [-1, 0, 1] {
-        for dx in [-1, 0, 1] {
-            if (dx, dy) != (0, 0) && y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
-                ret.push(((y+dy), (x+dx)));
-            }
-        }
-    }
-
-    return ret;
-}
-
-
 surroundings_horizontal(inp, y, x, length) {
     ret = [];
 
@@ -110,8 +81,8 @@ surroundings_horizontal(inp, y, x, length) {
 
 part1(inp, numbers, symbols) {
     sum(map(|elt|{
-        ((y, x), num) = elt;
-        num if any_true([((y, x) in symbols) for (y, x) in surroundings_horizontal(inp, y, x, len(str(num)))]) else 0
+        (y, x), num = elt;
+        num if any_true([((y, x) in symbols) for y, x in surroundings_horizontal(inp, y, x, len(str(num)))]) else 0
     }, numbers.items()))
 }
 
@@ -121,8 +92,8 @@ part2(inp, numbers, symbols) {
     gears = {};
 
     map(|elt|{
-        ((y, x), num) = elt;
-        for (sym_y, sym_x) in surroundings_horizontal(inp, y, x, len(str(num))) {
+        (y, x), num = elt;
+        for sym_y, sym_x in surroundings_horizontal(inp, y, x, len(str(num))) {
             if inp[sym_y][sym_x] == "*" {
                 if (sym_y, sym_x) in gears {
                     if !((y, x) in [elt[1] for elt in gears[(sym_y, sym_x)]]) {
