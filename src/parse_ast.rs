@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::ast::{self, Loc};
+use crate::parse_ast;
 
 // unique variables
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -219,17 +220,8 @@ pub enum CallArgument {
 
 #[derive(Debug, Clone)]
 pub struct LambdaArgument {
-    pub name: String,
+    pub expr: LocExpr,
     pub loc: Loc
-}
-
-impl LambdaArgument {
-    fn preprocess(arg: Self) -> Result<ast::LambdaArgument, PreprocessingErrorMessage> {
-        Ok(ast::LambdaArgument {
-            name: arg.name,
-            loc: arg.loc
-        })
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -573,9 +565,47 @@ impl Expr {
             },
             Expr::FunctionPtr(s) => Ok(ast::Expr::FunctionPtr(s)),
             Expr::Lambda { arguments, expr } => {
+                let mut new_args = vec![];
+                let mut statements = vec![];
+
+                for arg in arguments {
+                    match arg.expr.expr {
+                        Expr::Variable(v) => new_args.push(ast::LambdaArgument {name: v, loc: arg.expr.loc.clone()}),
+                        Expr::Tuple(_) | Expr::List(_) => {
+                            let new_var = get_unique_var("unpack");
+                            let new_var_expr = LocExpr {
+                                expr: Expr::Variable(new_var.clone()),
+                                loc: arg.expr.loc.clone()
+                            };
+                            let new_var_assignment = LocStmt {
+                                stmt: Stmt::Assignment { target: arg.expr.clone(), expr: new_var_expr },
+                                loc: arg.expr.loc.clone()
+                            };
+                            new_args.push(ast::LambdaArgument {name: new_var, loc: arg.expr.loc.clone()});
+                            statements.push(new_var_assignment);
+                        },
+                        _ => return Err(PreprocessingErrorMessage {
+                            error: PreprocessingError::FunctionProcessingError("Lambda arguments need to be pattern to unpack into".to_string()),
+                            loc: Some(arg.expr.loc.clone())
+                        })
+                    }
+                }
+
+                let expr_loc = expr.loc.clone();
+                statements.push(
+                    LocStmt {
+                        stmt: Stmt::Expression { 
+                            expr: *expr
+                        },
+                        loc: expr_loc.clone()
+                    }
+                );
+
+                let new_expr = LocExpr { expr: Expr::Block { statements }, loc: expr_loc };
+
                 Ok(ast::Expr::Lambda {
-                    arguments: arguments.into_iter().map(LambdaArgument::preprocess).collect::<Result<_,_>>()?,
-                    expr: Box::new(LocExpr::preprocess(*expr)?)
+                    arguments: new_args,
+                    expr: Box::new(LocExpr::preprocess(new_expr)?)
                 })
             },
             Expr::Block { statements } => {
