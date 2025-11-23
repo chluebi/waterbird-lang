@@ -266,34 +266,43 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
     }
 }
 
+MultiPattern: parse_ast::LocExpr = {
+    <start: @L> <p:PatternTerm> "," <ps: CommaSeperatedPatterns> <end: @R> => {
+        let mut patterns = ps;
+        patterns.insert(0, p);
+        parse_ast::LocExpr {
+            expr: parse_ast::Expr::Tuple(patterns),
+            loc: start..end
+        }
+    }
+}
+
 PatternExpression: parse_ast::LocExpr = {
+    MultiPattern,
+    <p:PatternTerm> => p,
+}
+
+CommaSeperatedPatterns: Vec<parse_ast::LocExpr> = {
+    <p:PatternTerm> "," <ps:CommaSeperatedPatterns> => {
+        let mut ps = ps;
+        ps.insert(0, p);
+        ps
+    },
+    <p:PatternTerm> => vec![p],
+    => vec![]
+}
+
+
+PatternTerm: parse_ast::LocExpr = {
     <start: @L> <i:Ident> <end: @R> => parse_ast::LocExpr {
         expr: parse_ast::Expr::Variable(i),
         loc: start..end
-    },
-    <start: @L> "(" <p:PatternExpression> "," <ps: CommaSeperatedPatterns> ")" <end: @R> => {
-        let mut patterns = ps;
-        patterns.insert(0, p);
-        return parse_ast::LocExpr {
-            expr: parse_ast::Expr::Tuple(patterns),
-            loc: start..end
-        };
     },
     <start: @L> "[" <ps: CommaSeperatedPatterns> "]" <end: @R> => parse_ast::LocExpr {
         expr: parse_ast::Expr::List(ps),
         loc: start..end
     },
     "(" <p:PatternExpression> ")" => p,
-}
-
-CommaSeperatedPatterns: Vec<parse_ast::LocExpr> = {
-    <p:PatternExpression> "," <ps:CommaSeperatedPatterns> => {
-        let mut ps = ps;
-        ps.insert(0, p);
-        ps
-    },
-    <p:PatternExpression> => vec![p],
-    => vec![]
 }
 
 
@@ -307,6 +316,20 @@ Statement: parse_ast::LocStmt = {
             loc: start..end
         }
     },
+    <start: @L> <head:Expression> "," <tail:CommaSeperatedExpressions> "=" <e:Expression> <end: @R> => {
+        let mut patterns = tail;
+        patterns.insert(0, head);
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Assignment {
+                target: parse_ast::LocExpr {
+                    expr: parse_ast::Expr::Tuple(patterns),
+                    loc: start..end
+                },
+                expr: e
+            },
+            loc: start..end
+        }
+    }, 
     <start: @L> "return" <e:Expression> <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Return {
