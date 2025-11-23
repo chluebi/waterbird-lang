@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::ast::{self, Loc};
-use crate::parse_ast;
 
 // unique variables
 static COUNTER: AtomicUsize = AtomicUsize::new(0);

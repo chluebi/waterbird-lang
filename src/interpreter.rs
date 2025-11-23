@@ -638,8 +638,8 @@ impl ast::LocExpr {
             ast::Expr::Tuple(ref elts) => elts.iter().flat_map(ast::LocExpr::free_variables).collect(),
             ast::Expr::List(ref l) => l.iter().flat_map(ast::LocExpr::free_variables).collect(),
             ast::Expr::Dictionary(ref d) => d.iter().flat_map(|(k,v)| {let mut k = ast::LocExpr::free_variables(k); k.extend(ast::LocExpr::free_variables(v)); k}).collect(),
-            ast::Expr::BinOp { ref op, ref left, ref right } => {let mut left = ast::LocExpr::free_variables(&left); left.extend(ast::LocExpr::free_variables(&right)); left},
-            ast::Expr::UnOp { ref op, ref expr } => ast::LocExpr::free_variables(&expr),
+            ast::Expr::BinOp { op: _, ref left, ref right} => {let mut left = ast::LocExpr::free_variables(&left); left.extend(ast::LocExpr::free_variables(&right)); left},
+            ast::Expr::UnOp { op: _, ref expr } => ast::LocExpr::free_variables(&expr),
             ast::Expr::FunctionCall { ref function, ref positional_arguments, ref variadic_argument, ref keyword_arguments, ref keyword_variadic_argument } => {
                 let mut ret = ast::LocExpr::free_variables(&function);
                 ret.extend(positional_arguments.iter().flat_map(|arg| ast::LocExpr::free_variables(&arg.expr)));
@@ -1216,7 +1216,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 _ => (false, 1)
             };
 
-            let (indexer_start, indexer_border, remaining_elements) = match reverse {
+            let (indexer_start, _, remaining_elements) = match reverse {
                 false => {
                     let value_indexer_start: usize = match indexer_start {
                         Some(indexer) => {
