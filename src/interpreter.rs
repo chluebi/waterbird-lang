@@ -4,10 +4,12 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::fmt;
 use slab::Slab;
+use rustc_hash::{FxHashMap};
 
 use crate::{ast};
 
 pub type Ptr = usize;
+pub type FastMap<K,V> = FxHashMap<K,V>;
 
 macro_rules! eval_or_return_from_expr {
     ($state:expr, $expression:expr, $program:expr) => {
@@ -51,7 +53,7 @@ impl Hash for Value {
         match self {
             Value::Int(i) => i.hash(state),
             Value::Bool(b) => b.hash(state),
-            Value::Tuple(values) => values.iter().map(|v| v.hash(state)).collect(),
+            Value::Tuple(values) => values.iter().for_each(|v| v.hash(state)),
             Value::String(ptr) => ptr.hash(state), // thanks to string interning!
             _ => unreachable!()
         }
@@ -132,7 +134,7 @@ pub enum HeapObject {
     Lambda {
        arguments: Vec<ast::LambdaArgument>,
        expr: Box<ast::LocExpr>,
-       captured: HashMap<String, Value>
+       captured: FastMap<String, Value>
     }
 }
 
@@ -186,7 +188,7 @@ impl Heap {
         }
     }
 
-    pub fn get_lambda(&self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<(&Vec<ast::LambdaArgument>, &ast::LocExpr, &HashMap<String, Value>), InterpreterErrorMessage> {
+    pub fn get_lambda(&self, ptr: Ptr, loc: Option<&ast::Loc>) -> Result<(&Vec<ast::LambdaArgument>, &ast::LocExpr, &FastMap<String, Value>), InterpreterErrorMessage> {
         match self.objects.get(ptr) {
             Some(HeapObject::Lambda {arguments, expr, captured}) => Ok((arguments, *&expr, captured)),
             _ => Err(InterpreterErrorMessage {
@@ -327,67 +329,89 @@ impl<'a> fmt::Display for DisplayValue<'a> {
         }
     }
 }
+#[derive(Debug)]
+struct FunctionContext {
+    values: FastMap<String, Value>,
+    journal: Vec<Vec<(String, Option<Value>)>>,
+}
+
+impl FunctionContext {
+    fn new() -> Self {
+        FunctionContext {
+            values: FastMap::default(),
+            journal: vec![Vec::new()],
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Stack {
-    pub frames: Vec<Vec<HashMap<String,Value>>>
+    pub globals: FastMap<String, Value>,
+    frames: Vec<FunctionContext>
 }
 
 impl Stack {
     pub fn new() -> Self {
-        Stack { frames: vec![vec![HashMap::new()]] }
+        Stack { globals: FastMap::default(), frames: vec![FunctionContext::new()] }
+    }
+
+    pub fn define_global(&mut self, name: String, value: Value) {
+        self.globals.insert(name, value);
     }
 
     pub fn update_variable(&mut self, name: &str, value: Value) -> Option<Value> {
+        let context = self.frames.last_mut().unwrap();
 
-        // this defines the semantics of updating variables
-        // we first check if the variable has been "declared" previously, this means we need to update it in that place
-        for frame in self.frames.last_mut().unwrap().into_iter().rev() {
-            if frame.contains_key(name) {
-                return frame.insert(String::from(name), value);
-            }
+        if context.values.contains_key(name) {
+            context.values.insert(String::from(name), value)
+        } else {
+            // so it can be removed in the drop_frame
+            context.journal.last_mut().unwrap().push((String::from(name), None));
+            context.values.insert(String::from(name), value)
         }
-
-        // if not, this is the first declaration
-        let newest_frame = self.frames.last_mut().unwrap().last_mut().unwrap();
-        newest_frame.insert(String::from(name), value)
     } 
 
     pub fn shadow_variable(&mut self, name: &str, value: Value) -> Option<Value> {
-        let newest_frame = self.frames.last_mut().unwrap().last_mut().unwrap();
-        newest_frame.insert(String::from(name), value)
+        let context = self.frames.last_mut().unwrap();
+
+        let previous_value = context.values.get(name).cloned();
+        context.journal.last_mut().unwrap().push((String::from(name), previous_value));
+
+        context.values.insert(String::from(name), value)
     }
 
-    pub fn contains_variable(&mut self, name: &str) -> bool {
-        for frame in self.frames.last_mut().unwrap().iter().rev() {
-            if frame.contains_key(name) {
-                return true;
+    pub fn get_value(&self, name: &str) -> Option<Value> {
+        if let Some(context) = self.frames.last() {
+            if let Some(v) = context.values.get(name) {
+                return Some(v.clone());
             }
         }
-        return false;
-    } 
-
-    pub fn get_value(&mut self, name: &str) -> Option<Value> {
-        for frame in self.frames.last_mut().unwrap().iter().rev() {
-            match frame.get(name) {
-                Some(v) => return Some(v.clone()),
-                _ => ()
-            }
-        }
-        return None;
+        self.globals.get(name).cloned()
     }
 
     pub fn new_frame(&mut self) {
-        self.frames.last_mut().unwrap().push(HashMap::new());
+        self.frames.last_mut().unwrap().journal.push(Vec::new());
     }
 
     pub fn drop_frame(&mut self) {
-        self.frames.last_mut().unwrap().pop();
+        let context = self.frames.last_mut().unwrap();
+        
+        if let Some(changes) = context.journal.pop() {
+            for (name, old_value) in changes.into_iter().rev() {
+                match old_value {
+                    Some(v) => {
+                        context.values.insert(name, v);
+                    },
+                    _ => {
+                        context.values.remove(&name);
+                    }
+                }
+            }
+        }
     }
 
     pub fn new_function_context(&mut self) {
-        self.frames.push(Vec::new());
-        self.new_frame();
+        self.frames.push(FunctionContext::new());
     }
 
     pub fn drop_function_context(&mut self) {
@@ -554,50 +578,7 @@ fn deep_equals(left: &Value, right: &Value, heap: &Heap) -> bool {
 
 
 fn resolve_variable_from_state(state: &mut State, v: &str, program: &ast::Program) -> Result<Option<Value>, InterpreterErrorMessage> {
-    match state.stack.get_value(&v) {
-        Some(value) => return Ok(Some(value)),
-        _ => ()
-    }
-
-    match program.functions.get(v) {
-        Some(_) => return Ok(Some(Value::FunctionPtr(v.to_string()))),
-        _ => ()
-    }
-
-    match v {
-        "Int" => return Ok(Some(Value::NameSpacePtr(String::from("Int")))),
-        "Bool" => return Ok(Some(Value::NameSpacePtr(String::from("Bool")))),
-        "String" => return Ok(Some(Value::NameSpacePtr(String::from("String")))),
-        "Tuple" => return Ok(Some(Value::NameSpacePtr(String::from("Tuple")))),
-        "List" => return Ok(Some(Value::NameSpacePtr(String::from("List")))),
-        "Dict" => return Ok(Some(Value::NameSpacePtr(String::from("Dict")))),
-        _ => ()
-    }
-
-    match v {
-        "int" => return Ok(Some(Value::FunctionPtr(String::from("int")))),
-        "bool" => return Ok(Some(Value::FunctionPtr(String::from("bool")))),
-        "str" => return Ok(Some(Value::FunctionPtr(String::from("str")))),
-        "tuple" => return Ok(Some(Value::FunctionPtr(String::from("tuple")))),
-        "list" => return Ok(Some(Value::FunctionPtr(String::from("list")))),
-        "dict" => return Ok(Some(Value::FunctionPtr(String::from("dict")))),
-
-        "clone" => return Ok(Some(Value::FunctionPtr(String::from("clone")))),
-        "len" => return Ok(Some(Value::FunctionPtr(String::from("len")))),
-        "print" => return Ok(Some(Value::FunctionPtr(String::from("print")))),
-        "read" => return Ok(Some(Value::FunctionPtr(String::from("read")))),
-        "read_as_list" => return Ok(Some(Value::FunctionPtr(String::from("read_as_list")))),
-
-        "split" => return Ok(Some(Value::FunctionPtr(String::from("split")))),
-        "range" => return Ok(Some(Value::FunctionPtr(String::from("range")))),
-
-        "assert" => return Ok(Some(Value::FunctionPtr(String::from("assert")))),
-        "dealloc" => return Ok(Some(Value::FunctionPtr(String::from("dealloc")))),
-
-        _ => ()
-    }
-
-    Ok(None)
+    Ok(state.stack.get_value(v)) 
 }
 
 
@@ -1122,7 +1103,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                             })
                         }
 
-                        let new_values: HashMap<String, Value> = arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
+                        let new_values: FastMap<String, Value> = arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
 
                         state.stack.new_function_context();
                         
@@ -1316,7 +1297,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
         }
         ast::Expr::FunctionPtr(ref s) => {Ok(Ok(Value::FunctionPtr(s.clone())))},
         ast::Expr::Lambda { ref arguments, ref expr } => {
-            let mut captured = HashMap::new();
+            let mut captured = FastMap::default();
             let argument_names: Vec<&String> = arguments.iter().map(|x| &x.name).collect();
             for (k, v) in ast::LocExpr::free_variables(expr).iter().map(|v| (v, resolve_variable_from_state(state, v, program))) {
                 if argument_names.contains(&k) {
@@ -1453,7 +1434,7 @@ fn preprocess_args(
     keyword_arguments: &Vec<ast::CallKeywordArgument>,
     keyword_variadic_argument: &Option<ast::CallArgument>,
     program: &ast::Program
-) -> Result<Result<HashMap<String, Value>, Value>, InterpreterErrorMessage> {
+) -> Result<Result<FastMap<String, Value>, Value>, InterpreterErrorMessage> {
     
     let argument_values: Result<Result<Vec<Value>, Value>, InterpreterErrorMessage>
         = positional_arguments.iter().map(|arg| eval_expression(state, &arg.expr, program)).collect();
@@ -1560,7 +1541,7 @@ fn preprocess_args(
         })
     }
 
-    let mut new_values: HashMap<String, Value> = contract.positional_arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
+    let mut new_values: FastMap<String, Value> = contract.positional_arguments.iter().zip(argument_values.iter()).map(|(arg, value)| (arg.name.clone(), value.clone())).collect();
 
     if argument_values.len() > contract.positional_arguments.len() {
         // from previous logic the only way this happens if we have a variadic accepting argument in the function
@@ -2366,7 +2347,7 @@ fn call_builtin(
             }
         },
 
-        "split" | "String.split" => {
+        "split" | "String.split" | "List.split" => {
             let contract = ast::FunctionPrototype {
                 positional_arguments: vec![
                     ast::Argument {name: String::from("s"), arg_type: None, loc: 0..0},
@@ -2400,6 +2381,22 @@ fn call_builtin(
                     let sep_list: Vec<Value> = s.split(&sep).map(|str| {let ptr= state.heap.intern_string(str.to_string()); Value::String(ptr)}).collect();
                     let list_ptr = state.heap.alloc(HeapObject::List(sep_list));
                     Ok(Ok(Value::List(list_ptr)))
+                },
+                (Value::List(ptr), sep_val) => {
+                    let s = state.heap.get_list(*ptr, Some(s_loc))?;
+
+                    let mut sep_list: Vec<Vec<Value>> = vec![vec![]];
+                    for elt in s {
+                        if deep_equals(elt, sep_val, &state.heap) {
+                            sep_list.push(vec![]);
+                        } else {
+                            sep_list.last_mut().unwrap().push(elt.clone());
+                        }
+                    }
+
+                    let sep_list: Vec<Value> = sep_list.into_iter().map(|elt| {let ptr = state.heap.alloc(HeapObject::List(elt)); Value::List(ptr)}).collect();
+
+                    Ok(Ok(Value::List(state.heap.alloc(HeapObject::List(sep_list)))))
                 },
                 _ => Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError { expected: "str".to_string(), got: s_val.get_type_name() },
@@ -2751,9 +2748,48 @@ fn unpack_elements(state: &State, variables: &Vec<ast::LocExpr>, value: Value, v
     Ok(results)
 }
 
+fn get_builtins() -> Vec<(&'static str, Value)> {
+    vec![
+        // Namespaces
+        ("Int", Value::NameSpacePtr(String::from("Int"))),
+        ("Bool", Value::NameSpacePtr(String::from("Bool"))),
+        ("String", Value::NameSpacePtr(String::from("String"))),
+        ("Tuple", Value::NameSpacePtr(String::from("Tuple"))),
+        ("List", Value::NameSpacePtr(String::from("List"))),
+        ("Dict", Value::NameSpacePtr(String::from("Dict"))),
+        
+        // Built-in Functions
+        ("int", Value::FunctionPtr(String::from("int"))),
+        ("bool", Value::FunctionPtr(String::from("bool"))),
+        ("str", Value::FunctionPtr(String::from("str"))),
+        ("tuple", Value::FunctionPtr(String::from("tuple"))),
+        ("list", Value::FunctionPtr(String::from("list"))),
+        ("dict", Value::FunctionPtr(String::from("dict"))),
+        ("clone", Value::FunctionPtr(String::from("clone"))),
+        ("len", Value::FunctionPtr(String::from("len"))),
+        ("print", Value::FunctionPtr(String::from("print"))),
+        ("read", Value::FunctionPtr(String::from("read"))),
+        ("read_as_list", Value::FunctionPtr(String::from("read_as_list"))),
+        ("split", Value::FunctionPtr(String::from("split"))),
+        ("range", Value::FunctionPtr(String::from("range"))),
+        ("assert", Value::FunctionPtr(String::from("assert"))),
+        ("dealloc", Value::FunctionPtr(String::from("dealloc"))),
+    ]
+}
+
+fn prepare_state(state: &mut State, program: &ast::Program) {
+    for (name, val) in get_builtins() {
+        state.stack.define_global(name.to_string(), val);
+    }
+
+    for (func_name, _) in &program.functions {
+        state.stack.define_global(func_name.clone(), Value::FunctionPtr(func_name.clone()));
+    }
+}
 
 pub fn interpret(program: &ast::Program) -> Result<Value, InterpreterErrorMessage> {
     let mut state = State::new();
+    prepare_state(&mut state, program);
 
     let main_func = program.functions.get("main").unwrap();
 
@@ -2762,6 +2798,7 @@ pub fn interpret(program: &ast::Program) -> Result<Value, InterpreterErrorMessag
 
 pub fn interpret_with_state(program: &ast::Program) -> Result<(Value, State), InterpreterErrorMessage> {
     let mut state = State::new();
+    prepare_state(&mut state, program);
 
     let main_func = program.functions.get("main").unwrap();
 

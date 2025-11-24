@@ -118,7 +118,7 @@ part2(inp, numbers, symbols) {
 }
 
 main() {
-    inp = read("test_data/aoc_2023_3");
+    inp = read_as_list("test_data/aoc_2023_3");
     inp = inp.split("\n");
 
     numbers = {};
