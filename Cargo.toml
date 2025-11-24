@@ -5,8 +5,14 @@ edition = "2024"
 
 [dependencies]
 lalrpop-util = {version = "0.22.2", features = ["lexer"]}
+rustc-hash = "2.1.1"
 slab = "0.4.11"
 unescaper = "0.1.6"
 
 [build-dependencies]
 lalrpop = {version = "0.22.2"}
+
+[profile.release]
+debug = true
+force-frame-pointers = true
+codegen-units = 1
