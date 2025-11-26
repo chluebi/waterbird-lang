@@ -1,0 +1,153 @@
+map(f, list) {
+    new = [];
+    for e in list {
+        new.push(f(e));
+    }
+    new
+}
+
+filter(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            new.push(e);
+        }
+    }
+    new
+}
+
+any(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            return true;
+        }
+    }
+    return false;
+}
+
+any_true(list) {
+    new = [];
+    for e in list {
+        if e {
+            return true;
+        }
+    }
+    return false;
+}
+
+fold(step, start, list) {
+    if list == [] {
+        return start;
+    } else {
+        return fold(step, step(list[0], start), list[1:]);
+    }
+}
+
+sum(list) {
+    s = 0;
+    for x in list {
+        s += x;
+    }
+    s
+}
+
+
+surroundings_horizontal(inp, y, x, length) {
+    ret = [];
+
+    dx = -1;
+    for dy in range(-1, 2) {
+        if y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+            ret.push(((y+dy), (x+dx)));
+        }
+    }
+
+    dx = -1;
+    for dy in [-1, 1] {
+        for dx in range(-1, length) {
+            if y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+                ret.push(((y+dy), (x+dx)));
+            }
+        }
+    }
+
+    dx = length;
+    for dy in range(-1, 2) {
+        if y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+            ret.push(((y+dy), (x+dx)));
+        }
+    }
+
+    return ret;
+}
+
+
+enumerate(list) {
+    new_list = [];
+    for i in range(len(list)) {
+        new_list.push((i, list[i]));
+    }
+    new_list
+}
+
+
+part1(inp) {
+    ret = 0;
+
+    for row in inp {
+        text, numbers = row.split(": ");
+        winning, have = numbers.split(" | ");
+        winning = winning.split();
+        have = have.split();
+
+        s = 0;
+        for h in have {
+            if h in winning {
+                if s == 0 {
+                    s = 1;
+                } else {
+                    s *= 2;
+                }
+            }
+        }
+        ret += s;
+    }
+
+    ret
+} 
+
+
+
+part2(inp) {
+    amounts = {};
+    for i, row in enumerate(inp) {
+        amounts[i] = 1;
+    }
+
+    for i, row in enumerate(inp) {
+        text, numbers = row.split(": ");
+        winning, have = numbers.split(" | ");
+        winning = winning.split();
+        have = have.split();
+
+        s = 0;
+        for h in have {
+            if h in winning {
+                s += 1;
+            }
+        }
+        
+        for next in range(i+1, i+s+1) {
+            amounts[next] += amounts[i];
+        }
+    }
+
+    sum([i for _, i in amounts.items()])
+}
+
+main() {
+    inp = read("test_data/aoc_2023_4");
+    inp = inp.split("\n")[:-1];
+    (part1(inp), part2(inp))
+} 

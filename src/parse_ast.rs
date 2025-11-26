@@ -273,7 +273,7 @@ pub enum Expr {
     },
     Block {
         statements: Vec<LocStmt>    
-    }
+    }, 
 }
 
 impl Expr {
@@ -663,9 +663,14 @@ pub enum Stmt {
     Block {
         statements: Vec<LocStmt> 
     },
+    SoftBlock { // blocks that just "transmit" continue up the call chain
+        statements: Vec<LocStmt>
+    },
     Expression {
         expr: LocExpr
-    }
+    },
+    Break,
+    Continue
 }
 
 impl Stmt {
@@ -855,11 +860,18 @@ impl Stmt {
                     statements: statements.into_iter().map(LocStmt::preprocess).collect::<Result<_,_>>()?
                 })
             },
+            Stmt::SoftBlock { statements } => {
+                Ok(ast::Stmt::SoftBlock {
+                    statements: statements.into_iter().map(LocStmt::preprocess).collect::<Result<_,_>>()?
+                })
+            },
             Stmt::Expression { expr: expression } => {
                 Ok(ast::Stmt::Expression {
                     expr: LocExpr::preprocess(expression)?
                 })
-            }
+            },
+            Stmt::Break => Ok(ast::Stmt::Break),
+            Stmt::Continue => Ok(ast::Stmt::Continue)
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::fs::File;
+use std::cmp::Ordering;
 use std::io::{self, Read};
 use std::fmt;
 use slab::Slab;
@@ -577,6 +578,39 @@ fn deep_equals(left: &Value, right: &Value, heap: &Heap) -> bool {
 }
 
 
+fn compare_values(left: &Value, right: &Value, heap: &Heap, loc: &ast::Loc) -> Result<Ordering, InterpreterErrorMessage> {
+    match (left, right) {
+        (Value::Int(l), Value::Int(r)) => Ok(l.cmp(r)),
+        (Value::Bool(l), Value::Bool(r)) => Ok(l.cmp(r)),
+        (Value::String(l_ptr), Value::String(r_ptr)) => {
+            let l_str = heap.get_string(*l_ptr, Some(loc))?;
+            let r_str = heap.get_string(*r_ptr, Some(loc))?;
+            Ok(l_str.cmp(r_str))
+        },
+        (l, r) => {
+            if l.get_type_name() != r.get_type_name() {
+                Err(InterpreterErrorMessage {
+                    error: InterpreterError::TypeError {
+                        expected: l.get_type_name().to_string(),
+                        got: r.get_type_name()
+                    },
+                    loc: Some(loc.clone())
+                })
+            } else {
+                Err(InterpreterErrorMessage {
+                    error: InterpreterError::InvalidOperandTypesBin {
+                        op: ast::BinOp::Lt,
+                        left: l.get_type_name(),
+                        right: r.get_type_name()
+                    },
+                    loc: Some(loc.clone())
+                })
+            }
+        }
+    }
+}
+
+
 fn resolve_variable_from_state(state: &mut State, v: &str, program: &ast::Program) -> Result<Option<Value>, InterpreterErrorMessage> {
     Ok(state.stack.get_value(v)) 
 }
@@ -711,7 +745,7 @@ impl ast::LocStmt {
                 ret.extend(ast::LocStmt::free_variables(body));
                 ret
             },
-            ast::Stmt::Block { ref statements } => {
+            ast::Stmt::Block { ref statements } | ast::Stmt::SoftBlock { ref statements } => {
                 let mut ret = HashSet::new();
                 let mut defined_in_scope = HashSet::new();
 
@@ -730,6 +764,8 @@ impl ast::LocStmt {
                 ret
             },
             ast::Stmt::Expression { ref expr } => ast::LocExpr::free_variables(&expr),
+            ast::Stmt::Break => HashSet::new(),
+            ast::Stmt::Continue => HashSet::new()
         }
     }
 
@@ -1547,7 +1583,10 @@ fn preprocess_args(
         // from previous logic the only way this happens if we have a variadic accepting argument in the function
         let extra_args = &argument_values[contract.positional_arguments.len()..];
         let ptr = state.heap.alloc(HeapObject::List(extra_args.to_vec()));
-
+        
+        new_values.insert(contract.variadic_argument.clone().unwrap().name, Value::List(ptr));
+    } else if let Some(var_argumemt) = &contract.variadic_argument {
+        let ptr = state.heap.alloc(HeapObject::List(vec![]));
         new_values.insert(contract.variadic_argument.clone().unwrap().name, Value::List(ptr));
     }
 
@@ -2095,7 +2134,7 @@ fn call_builtin(
         "List.pop" => {
             let contract = ast::FunctionPrototype {
                 positional_arguments: vec![ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0}],
-                variadic_argument: None,
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type: None
@@ -2109,15 +2148,81 @@ fn call_builtin(
 
             let l_val = args_map.get("l").unwrap();
             let l_loc = &positional_arguments.get(0).unwrap().loc;
+            
+            let optional_args = match args_map.get("args").unwrap() {
+                Value::List(ptr) => state.heap.get_list(*ptr, None)?.clone(),
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected")), loc: Some(loc.clone())})
+            };
 
-            return match l_val {
+            match l_val {
                 Value::List(ptr) => {
-                    match state.heap.get_list_mut(*ptr, Some(&l_loc))?.pop() {
-                        Some(value) => Ok(Ok(value)),
-                        _ => Err(InterpreterErrorMessage { error: InterpreterError::IndexOutOfBounds, loc: Some(loc.clone()) })
+                    let list_len = state.heap.get_list(*ptr, Some(l_loc))?.len();
+
+                    let index = if optional_args.is_empty() {
+                        // Default to last element
+                        if list_len == 0 {
+                            return Err(InterpreterErrorMessage { error: InterpreterError::IndexOutOfBounds, loc: Some(l_loc.clone()) });
+                        }
+                        list_len - 1
+                    } else if optional_args.len() == 1 {
+                        // Parse index
+                        wrap_index(optional_args[0].clone(), l_loc.clone(), list_len)?
+                    } else {
+                        return Err(InterpreterErrorMessage {
+                            error: InterpreterError::ArgumentError("List.pop expects at most 1 argument (index)".to_string()),
+                            loc: Some(l_loc.clone())
+                        });
+                    };
+
+                    let val = state.heap.get_list_mut(*ptr, Some(l_loc))?.remove(index);
+                },
+                _ => return Err(InterpreterErrorMessage {
+                    error: InterpreterError::TypeError { expected: "list".to_string(), got: l_val.get_type_name() },
+                    loc: Some(l_loc.clone())
+                })
+            }
+        },
+
+        "List.remove" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![
+                    ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0},
+                    ast::Argument {name: String::from("elt"), arg_type: None, loc: 0..0}
+                ],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let l_val = args_map.get("l").unwrap();
+            let elt_val = args_map.get("elt").unwrap();
+            let l_loc = &positional_arguments.get(0).unwrap().loc;
+
+            match l_val {
+                Value::List(ptr) => {
+                    let list_ref = state.heap.get_list(*ptr, Some(l_loc))?;
+                    
+                    // Find index of element to remove
+                    let index_to_remove = list_ref.iter().position(|x| deep_equals(x, elt_val, &state.heap));
+
+                    match index_to_remove {
+                        Some(idx) => {
+                            state.heap.get_list_mut(*ptr, Some(l_loc))?.remove(idx);
+                        },
+                        _ => return Err(InterpreterErrorMessage {
+                            error: InterpreterError::ArgumentError("Element not found in list".to_string()),
+                            loc: Some(loc.clone())
+                        })
                     }
                 },
-                _ => Err(InterpreterErrorMessage {
+                _ => return Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError { expected: "list".to_string(), got: l_val.get_type_name() },
                     loc: Some(l_loc.clone())
                 })
@@ -2351,9 +2456,8 @@ fn call_builtin(
             let contract = ast::FunctionPrototype {
                 positional_arguments: vec![
                     ast::Argument {name: String::from("s"), arg_type: None, loc: 0..0},
-                    ast::Argument {name: String::from("sep"), arg_type: None, loc: 0..0},
                 ],
-                variadic_argument: None,
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type: None
@@ -2368,41 +2472,78 @@ fn call_builtin(
             let s_val = args_map.get("s").unwrap();
             let s_loc = &positional_arguments.get(0).unwrap().loc;
 
-            let sep_val = args_map.get("sep").unwrap();
-            let sep_loc = &positional_arguments.get(1).unwrap().loc;
+            let optional_args = match args_map.get("args").unwrap() {
+                Value::List(ptr) => state.heap.get_list(*ptr, None)?,
+                _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected from preprocess_args")), loc: Some(loc.clone())})
+            };
+
+            // split by whitespace by default
+            if optional_args.is_empty() {
+                return match s_val {
+                    Value::String(ptr) => {
+                        let s = state.heap.get_string(*ptr, Some(&s_loc))?.clone();
+                        let parts: Vec<Value> = s.split_whitespace().map(|str| {
+                            let ptr = state.heap.intern_string(str.to_string()); 
+                            Value::String(ptr)
+                        }).collect();
+                        
+                        let list_ptr = state.heap.alloc(HeapObject::List(parts));
+                        Ok(Ok(Value::List(list_ptr)))
+                    },
+                    Value::List(_) => {
+                         Err(InterpreterErrorMessage {
+                            error: InterpreterError::ArgumentError("List.split requires a separator argument".to_string()),
+                            loc: Some(s_loc.clone())
+                        })
+                    },
+                    _ => Err(InterpreterErrorMessage {
+                        error: InterpreterError::TypeError { expected: "str".to_string(), got: s_val.get_type_name() },
+                        loc: Some(s_loc.clone())
+                    })
+                }
+            } 
             
+            if optional_args.len() == 1 {
+                let sep_val = &optional_args[0];
+                let sep_loc = loc; 
 
-            return match (s_val, sep_val) {
-                (Value::String(ptr), Value::String(ptr2)) => {
-                    let (s, sep) = match (state.heap.get_string(*ptr, Some(&s_loc))?, state.heap.get_string(*ptr2, Some(&sep_loc))?) {
-                        (s, sep) => (s.clone(), sep.clone())
-                    };
+                return match (s_val, sep_val) {
+                    (Value::String(ptr), Value::String(ptr2)) => {
+                        let (s, sep) = match (state.heap.get_string(*ptr, Some(&s_loc))?, state.heap.get_string(*ptr2, Some(&sep_loc))?) {
+                            (s, sep) => (s.clone(), sep.clone())
+                        };
 
-                    let sep_list: Vec<Value> = s.split(&sep).map(|str| {let ptr= state.heap.intern_string(str.to_string()); Value::String(ptr)}).collect();
-                    let list_ptr = state.heap.alloc(HeapObject::List(sep_list));
-                    Ok(Ok(Value::List(list_ptr)))
-                },
-                (Value::List(ptr), sep_val) => {
-                    let s = state.heap.get_list(*ptr, Some(s_loc))?;
+                        let sep_list: Vec<Value> = s.split(&sep).map(|str| {let ptr= state.heap.intern_string(str.to_string()); Value::String(ptr)}).collect();
+                        let list_ptr = state.heap.alloc(HeapObject::List(sep_list));
+                        Ok(Ok(Value::List(list_ptr)))
+                    },
+                    (Value::List(ptr), sep_val) => {
+                        let s = state.heap.get_list(*ptr, Some(s_loc))?;
 
-                    let mut sep_list: Vec<Vec<Value>> = vec![vec![]];
-                    for elt in s {
-                        if deep_equals(elt, sep_val, &state.heap) {
-                            sep_list.push(vec![]);
-                        } else {
-                            sep_list.last_mut().unwrap().push(elt.clone());
+                        let mut sep_list: Vec<Vec<Value>> = vec![vec![]];
+                        for elt in s {
+                            if deep_equals(elt, sep_val, &state.heap) {
+                                sep_list.push(vec![]);
+                            } else {
+                                sep_list.last_mut().unwrap().push(elt.clone());
+                            }
                         }
-                    }
 
-                    let sep_list: Vec<Value> = sep_list.into_iter().map(|elt| {let ptr = state.heap.alloc(HeapObject::List(elt)); Value::List(ptr)}).collect();
+                        let sep_list: Vec<Value> = sep_list.into_iter().map(|elt| {let ptr = state.heap.alloc(HeapObject::List(elt)); Value::List(ptr)}).collect();
 
-                    Ok(Ok(Value::List(state.heap.alloc(HeapObject::List(sep_list)))))
-                },
-                _ => Err(InterpreterErrorMessage {
-                    error: InterpreterError::TypeError { expected: "str".to_string(), got: s_val.get_type_name() },
-                    loc: Some(s_loc.clone())
-                })
+                        Ok(Ok(Value::List(state.heap.alloc(HeapObject::List(sep_list)))))
+                    },
+                    _ => Err(InterpreterErrorMessage {
+                        error: InterpreterError::TypeError { expected: "str".to_string(), got: s_val.get_type_name() },
+                        loc: Some(s_loc.clone())
+                    })
+                }
             }
+
+            return Err(InterpreterErrorMessage {
+                error: InterpreterError::ArgumentError("Too many arguments provided to split".to_string()),
+                loc: Some(loc.clone())
+            })
         },
 
         "assert" => {
@@ -2488,10 +2629,12 @@ fn read_file(file_path: &str) -> io::Result<String> {
     Ok(contents)
 }
 
-
+#[derive(Debug)]
 enum StatementReturn {
     Return(Value),
     Eval(Value),
+    Continue,
+    Break,
     None
 }
 
@@ -2602,10 +2745,11 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
 
             match eval_condition {
                 Value::Bool(b) => {
-                    match b {
-                        true => return run_statement(state, &if_body, program),
-                        false => return run_statement(state, &else_body, program),
-                    }
+                    let ret = match b {
+                        true => run_statement(state, &if_body, program),
+                        false => run_statement(state, &else_body, program),
+                    };
+                    return ret;
                 }
                 x => {
                     return Err(InterpreterErrorMessage {
@@ -2641,6 +2785,10 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
                     return Ok(StatementReturn::Return(v));
                 }
 
+                if let StatementReturn::Break = ret {
+                    return Ok(StatementReturn::None);
+                }
+
                 let eval_condition = eval_or_return_from_stmt!(state, condition, program);
                 cond = match eval_condition {
                     Value::Bool(b) => b,
@@ -2672,6 +2820,14 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
                                 state.stack.drop_frame();                                
                                 return Ok(StatementReturn::Return(v)) // we *return* a value
                             },
+                            Ok(StatementReturn::Break) => {
+                                state.stack.drop_frame();
+                                return Ok(StatementReturn::Break)
+                            },
+                            Ok(StatementReturn::Continue) => {
+                                state.stack.drop_frame();
+                                return Ok(StatementReturn::None) // we EAT the continue
+                            },
                             Ok(_) => {}
                         };
                     }
@@ -2689,6 +2845,69 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
                             state.stack.drop_frame();                                
                             return Ok(StatementReturn::Eval(v)) // we *return* a value
                         }
+                        Ok(StatementReturn::Break) => {
+                            state.stack.drop_frame();
+                            return Ok(StatementReturn::Break)
+                        },
+                        Ok(StatementReturn::Continue) => {
+                            state.stack.drop_frame();
+                            return Ok(StatementReturn::None) // we EAT the continue
+                        },
+                        Ok(_) => {}
+                    }
+                },
+                [] => return Ok(StatementReturn::None)
+            }
+        },
+        ast::Stmt::SoftBlock { statements } => {
+            match statements.as_slice() {
+                [rest @ .., last] => {
+                    
+                    state.stack.new_frame();
+
+                    for stmt in rest.iter() {
+                        let ret = run_statement(state, stmt, program);
+                        match ret {
+                            Err(e) => {
+                                return Err(e)
+                            },
+                            Ok(StatementReturn::Return(v)) => {
+                                state.stack.drop_frame();                                
+                                return Ok(StatementReturn::Return(v)) // we *return* a value
+                            },
+                            Ok(StatementReturn::Break) => {
+                                state.stack.drop_frame();
+                                return Ok(StatementReturn::Break)
+                            },
+                            Ok(StatementReturn::Continue) => {
+                                state.stack.drop_frame();
+                                return Ok(StatementReturn::Continue) // we TRANSMIT the continue, because we are just soft
+                            },
+                            Ok(_) => {}
+                        };
+                    }
+
+                    let ret = run_statement(state, last, program);
+                    match ret {
+                        Err(e) => {
+                            return Err(e)
+                        },
+                        Ok(StatementReturn::Return(v)) => {
+                            state.stack.drop_frame();                                
+                            return Ok(StatementReturn::Return(v)) // we *return* a value
+                        },
+                        Ok(StatementReturn::Eval(v)) => {
+                            state.stack.drop_frame();                                
+                            return Ok(StatementReturn::Eval(v)) // we *return* a value
+                        }
+                        Ok(StatementReturn::Break) => {
+                            state.stack.drop_frame();
+                            return Ok(StatementReturn::Break)
+                        },
+                        Ok(StatementReturn::Continue) => {
+                            state.stack.drop_frame();
+                            return Ok(StatementReturn::Continue) // we TRANSMIT the continue, because we are just soft
+                        },
                         Ok(_) => {}
                     }
                 },
@@ -2698,7 +2917,9 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
         ast::Stmt::Expression { expr: expression } => {
             let value = eval_or_return_from_stmt!(state, expression, program);
             return Ok(StatementReturn::Eval(value));
-        }
+        },
+        ast::Stmt::Break => return Ok(StatementReturn::Break),
+        ast::Stmt::Continue => return Ok(StatementReturn::Continue)
     }
 
     return Ok(StatementReturn::None);

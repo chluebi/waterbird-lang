@@ -162,10 +162,22 @@ FinalExpression: parse_ast::LocStmt = {
     }
 }
 
-ControlFlowBody: parse_ast::LocStmt = {
+LoopBody: parse_ast::LocStmt = {
     <start: @L> <stmts:ControlFlowStatements> <end: @R> => {
         parse_ast::LocStmt {
             stmt: parse_ast::Stmt::Block {
+                statements: stmts
+            },
+            loc: start..end
+        }
+        
+    },
+};
+
+ConditionalBody: parse_ast::LocStmt = {
+    <start: @L> <stmts:ControlFlowStatements> <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::SoftBlock {
                 statements: stmts
             },
             loc: start..end
@@ -195,7 +207,7 @@ ControlFlowStatements: Vec<parse_ast::LocStmt> = {
 
 
 ControlFlow: Vec<parse_ast::LocStmt> = {
-    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:ControlFlowBody> "}" <end2: @R>  => {
+    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:ConditionalBody> "}" <end2: @R>  => {
         vec![
             parse_ast::LocStmt {
                 stmt: parse_ast::Stmt::IfElse {
@@ -212,7 +224,7 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
             }
         ]
     },
-    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:ControlFlowBody> "}" "else" "{" <else_body:ControlFlowBody> "}"  => {
+    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:ConditionalBody> "}" "else" "{" <else_body:ConditionalBody> "}"  => {
         vec![
             parse_ast::LocStmt {
                 stmt: parse_ast::Stmt::IfElse {
@@ -224,7 +236,7 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
             }
         ]
     },
-    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:ControlFlowBody> "}" "else" <start2: @L> <next_cf:ControlFlow> <end2: @R> => {
+    <start: @L> "if" <c:Expression> <end: @R> "{" <if_body:ConditionalBody> "}" "else" <start2: @L> <next_cf:ControlFlow> <end2: @R> => {
         vec![
             parse_ast::LocStmt {
                 stmt: parse_ast::Stmt::IfElse {
@@ -241,7 +253,7 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
             }
         ]
     },
-    <start: @L> "while" <c:Expression> <end: @R>  "{" <b:ControlFlowBody> "}" => {
+    <start: @L> "while" <c:Expression> <end: @R>  "{" <b:LoopBody> "}" => {
         vec![
             parse_ast::LocStmt {
                 stmt: parse_ast::Stmt::While {
@@ -252,7 +264,7 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
             }
         ]
     },
-    <start: @L> "for" <p:PatternExpression> "in" <i:Expression> <end: @R>  "{" <b:ControlFlowBody> "}" => {
+    <start: @L> "for" <p:PatternExpression> "in" <i:Expression> <end: @R>  "{" <b:LoopBody> "}" => {
         vec![
             parse_ast::LocStmt {
                 stmt: parse_ast::Stmt::For {
@@ -335,6 +347,18 @@ Statement: parse_ast::LocStmt = {
             stmt: parse_ast::Stmt::Return {
                 expr: e
             },
+            loc: start..end
+        }
+    },
+    <start: @L> "break" <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Break,
+            loc: start..end
+        }
+    },
+    <start: @L> "continue" <end: @R> => {
+        parse_ast::LocStmt {
+            stmt: parse_ast::Stmt::Continue,
             loc: start..end
         }
     },
@@ -818,6 +842,8 @@ match {
     "return",
     "true",
     "false",
+    "break",
+    "continue",
 
     "=",
     "+",
