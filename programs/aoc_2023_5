@@ -1,0 +1,230 @@
+map(f, list) {
+    new = [];
+    for e in list {
+        new.push(f(e));
+    }
+    new
+}
+
+filter(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            new.push(e);
+        }
+    }
+    new
+}
+
+any(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            return true;
+        }
+    }
+    return false;
+}
+
+any_true(list) {
+    new = [];
+    for e in list {
+        if e {
+            return true;
+        }
+    }
+    return false;
+}
+
+fold(step, start, list) {
+    if list == [] {
+        return start;
+    } else {
+        return fold(step, step(list[0], start), list[1:]);
+    }
+}
+
+sum(list) {
+    s = 0;
+    for x in list {
+        s += x;
+    }
+    s
+}
+
+concat(list) {
+    s = [];
+    for x in list {
+        s += x;
+    }
+    s
+}
+
+
+surroundings_horizontal(inp, y, x, length) {
+    ret = [];
+
+    dx = -1;
+    for dy in range(-1, 2) {
+        if y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+            ret.push(((y+dy), (x+dx)));
+        }
+    }
+
+    dx = -1;
+    for dy in [-1, 1] {
+        for dx in range(-1, length) {
+            if y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+                ret.push(((y+dy), (x+dx)));
+            }
+        }
+    }
+
+    dx = length;
+    for dy in range(-1, 2) {
+        if y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+            ret.push(((y+dy), (x+dx)));
+        }
+    }
+
+    return ret;
+}
+
+
+enumerate(list) {
+    new_list = [];
+    for i in range(len(list)) {
+        new_list.push((i, list[i]));
+    }
+    new_list
+}
+
+min(*vals) {
+    smallest = vals[0];
+    for v in vals[1:] {
+        if v < smallest {
+            smallest = v;
+        }
+    }
+    smallest
+}
+
+max(*vals) {
+    largest = vals[0];
+    for v in vals[1:] {
+        if v > largest {
+            largest = v;
+        }
+    }
+    largest
+}
+
+
+sort(l, key=|x|{x}) {
+
+    for i in range(1, len(l)) {
+        current_value = l[i];
+        current_key = key(current_value);
+        j = i - 1;
+
+        while j >= 0 && key(l[j]) > current_key {
+            l[j+1] = l[j];
+            j = j - 1;
+        }
+
+        l[j+1] = current_value;
+    }
+    
+    return l;
+}
+
+
+pairs(l) {
+    ret = [(l[i], l[i+1]) for i in range(0, len(l), 2)];
+    ret
+}
+
+
+follow_map(r, m) {
+    ret = [];
+
+    c_low = r[0];
+    c_len = r[1];
+
+    for current_map in m {
+        if c_len <= 0 {
+            break;
+        }
+        if c_low < current_map[1] {
+
+            if c_low + c_len <= current_map[1] {
+                ret.push((c_low, c_len));
+                c_len = 0;
+                break;
+            }
+
+            ret.push((c_low, current_map[1] - c_low));
+            c_low = current_map[1];
+            c_len -= current_map[1] - c_low;
+        }
+
+        if c_low + c_len <= current_map[1] + current_map[2] {
+            ret.push(((current_map[0] + (c_low - current_map[1])), c_len));
+            c_len = 0;
+            break;
+        }
+
+        if c_low < current_map[1] + current_map[2] {
+            ret.push(((current_map[0] + (c_low - current_map[1])), current_map[1] + current_map[2] - c_low));
+            c_len -= current_map[1] + current_map[2] - c_low;
+            c_low = current_map[1] + current_map[2];
+        }
+    }
+
+    if c_len > 0 {
+        ret.push((c_low, c_len));
+    }
+    ret
+}
+
+
+part1(seeds, parsed_maps) {
+    ranges = [(i, 1) for i in seeds];
+    for m in parsed_maps {
+        ranges = concat([follow_map(s, m) for s in ranges]);
+    }
+    min(*[r[0] for r in ranges])
+} 
+
+
+
+part2(seeds, parsed_maps) {
+    ranges = pairs(seeds);
+    for m in parsed_maps {
+        ranges = concat([follow_map(s, m) for s in ranges]);
+    }
+    min(*[r[0] for r in ranges])
+}
+
+main() {
+    inp = read("test_data/aoc_2023_5");
+    inp = inp.split("\n\n");
+    seeds = inp[0];
+    text, seeds = seeds.split(": ");
+    seeds = map(int, seeds.split());
+
+    maps = inp[1:];
+    parsed_maps = [];
+    for map in maps {
+        l = [];
+        for line in map.split("\n")[1:] {
+            line = [int(x) for x in line.split()];
+            dest_start, source_start, r = line;
+            l.push((dest_start, source_start, r));
+        }
+        sort(l, key=|x|{x[1]});
+        parsed_maps.push(l);
+    }
+
+    (part1(seeds, parsed_maps), part2(seeds, parsed_maps))
+} 

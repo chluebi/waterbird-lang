@@ -443,9 +443,14 @@ pub enum Stmt {
     Block {
         statements: Vec<LocStmt> 
     },
+    SoftBlock { // blocks that just "transmit" continue up the call chain
+        statements: Vec<LocStmt>
+    },
     Expression {
         expr: LocExpr
-    }
+    },
+    Break,
+    Continue
 }
 
 impl fmt::Display for Stmt {
@@ -474,7 +479,7 @@ impl fmt::Display for Stmt {
             Stmt::While { cond, body } => {
                 write!(f, "while {} {}", cond, body)
             },
-            Stmt::Block { statements } => {
+            Stmt::Block { statements } | Stmt::SoftBlock { statements } => {
                 writeln!(f, "{{")?;
                 for stmt in statements {
                     let stmt_str = format!("{}", stmt);
@@ -486,7 +491,13 @@ impl fmt::Display for Stmt {
             },
             Stmt::Expression { expr } => {
                 write!(f, "{}", expr)
-            }
+            },
+            Stmt::Break => {
+                write!(f, "break")
+            },
+            Stmt::Continue => {
+                write!(f, "continue")
+            },
         }
     }
 }
