@@ -6,6 +6,7 @@ use std::io::{self, Read};
 use std::fmt;
 use slab::Slab;
 use rustc_hash::{FxHashMap};
+use std::time::{Instant, Duration};
 
 use crate::{ast};
 
@@ -420,17 +421,62 @@ impl Stack {
     }
 }
 
+
+#[derive(Debug)]
+pub struct Profiler {
+    enabled: bool,
+    stats: FastMap<String, (u64, Duration)>
+}
+
+impl Profiler {
+    pub fn new(enabled: bool) -> Self {
+        Profiler {
+            enabled,
+            stats: FastMap::default(),
+        }
+    }
+
+    pub fn record(&mut self, name: &str, duration: Duration) {
+        if !self.enabled { return; }
+        
+        let entry = self.stats.entry(name.to_string()).or_insert((0, Duration::new(0, 0)));
+        entry.0 += 1;
+        entry.1 += duration;
+    }
+
+    pub fn print_stats(&self) {
+        if !self.enabled || self.stats.is_empty() {
+            return;
+        }
+
+        println!("\n=== Profiling Results ===");
+        println!("{:<30} | {:<10} | {:<15} | {:<15}", "Function", "Calls", "Total Time", "Avg Time");
+        println!("{:-<30}-|-{:-<10}-|-{:-<15}-|-{:-<15}", "", "", "", "");
+
+        let mut sorted_stats: Vec<(&String, &(u64, Duration))> = self.stats.iter().collect();
+        sorted_stats.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+
+        for (name, (count, duration)) in sorted_stats {
+            let avg = if *count > 0 { *duration / *count as u32 } else { Duration::new(0,0) };
+            println!("{:<30} | {:<10} | {:<15?} | {:<15?}", name, count, duration, avg);
+        }
+        println!("=========================\n");
+    }
+}
+
 #[derive(Debug)]
 pub struct State {
     pub stack: Stack, 
-    pub heap: Heap
+    pub heap: Heap,
+    pub profiler: Profiler
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn new(enable_profiling: bool) -> Self {
         State {
             stack: Stack::new(),
-            heap: Heap::new()
+            heap: Heap::new(),
+            profiler: Profiler::new(enable_profiling)
         }
     }
 }
@@ -1649,9 +1695,17 @@ fn call_function(
     keyword_variadic_argument: &Option<ast::CallArgument>,
     program: &ast::Program
 ) -> Result<Result<Value, Value>, InterpreterErrorMessage> {
+
+    let profiler_start_time = if state.profiler.enabled { Some(Instant::now()) } else { None };
+
     let function = match program.functions.get(function_name) {
         Some(f) => f,
-        _ => return call_builtin(state, function_name, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)
+        _ => {
+            if let Some(start) = profiler_start_time {
+                state.profiler.record(function_name, start.elapsed());
+            }
+            return call_builtin(state, function_name, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)
+        }
     };
 
     let new_values = preprocess_args(state, &function.contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -1668,6 +1722,10 @@ fn call_function(
     let value = run_statement(state, &function.body, program);
 
     state.stack.drop_function_context();
+
+    if let Some(start) = profiler_start_time {
+        state.profiler.record(function_name, start.elapsed());
+    }
 
     match value {
         Ok(StatementReturn::Return(v)) | Ok(StatementReturn::Eval(v)) => {
@@ -3008,8 +3066,8 @@ fn prepare_state(state: &mut State, program: &ast::Program) {
     }
 }
 
-pub fn interpret(program: &ast::Program) -> Result<Value, InterpreterErrorMessage> {
-    let mut state = State::new();
+pub fn interpret(program: &ast::Program, enable_profiling: bool) -> Result<Value, InterpreterErrorMessage> {
+    let mut state = State::new(enable_profiling);
     prepare_state(&mut state, program);
 
     let main_func = program.functions.get("main").unwrap();
@@ -3017,11 +3075,13 @@ pub fn interpret(program: &ast::Program) -> Result<Value, InterpreterErrorMessag
     return Ok(run_statement(&mut state, &main_func.body, program)?.unwrap());
 }
 
-pub fn interpret_with_state(program: &ast::Program) -> Result<(Value, State), InterpreterErrorMessage> {
-    let mut state = State::new();
+pub fn interpret_with_state(program: &ast::Program, enable_profiling: bool) -> Result<(Value, State), InterpreterErrorMessage> {
+    let mut state = State::new(enable_profiling);
     prepare_state(&mut state, program);
 
     let main_func = program.functions.get("main").unwrap();
 
-    return Ok((run_statement(&mut state, &main_func.body, program)?.unwrap(), state));
+    return match call_function(&mut state, "main", &main_func.loc, &vec![], &None, &vec![], &None, program)? {
+        Ok(e) | Err(e) => Ok((e, state))
+    };
 }
