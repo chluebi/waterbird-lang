@@ -49,11 +49,11 @@ pub fn eval(path: String) -> Result<interpreter::Value, interpreter::Interpreter
     let program_text = read_file(&path).unwrap();
     let program = parser::GrammarParser::new().parse(&program_text);
     let program = parse_ast::Program::preprocess(program.unwrap());
-    interpreter::interpret(&program.unwrap())
+    interpreter::interpret(&program.unwrap(), false)
 }
 
 
-pub fn run(path: String) -> () { 
+pub fn run(path: String, enable_profiling: bool) -> () { 
     let program_text = read_file(&path).unwrap();
 
     let program = match parser::GrammarParser::new().parse(&program_text) {
@@ -102,8 +102,13 @@ pub fn run(path: String) -> () {
     println!("{}", program);
 
 
-    match interpreter::interpret_with_state(&program) {
-        Ok((v, s)) => println!("Program Executed with result {}", interpreter::DisplayValue::new(&v, &s.heap)),
+    match interpreter::interpret_with_state(&program, enable_profiling) {
+        Ok((v, s)) => {
+            println!("Program Executed with result {}", interpreter::DisplayValue::new(&v, &s.heap));
+            if enable_profiling {
+                s.profiler.print_stats();
+            }
+        }
         Err(e) => {
             match e.loc.clone() {
                 Some(range) => {

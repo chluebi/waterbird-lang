@@ -45,7 +45,11 @@ fold(step, start, list) {
 }
 
 sum(list) {
-    fold(|x, y|{x + y}, 0, list)
+    s = 0;
+    for x in list {
+        s += x;
+    }
+    s
 }
 
 
@@ -122,6 +126,7 @@ main() {
     inp = inp.split("\n");
 
     numbers = {};
+    string_numbers = [str(s) for s in range(10)];
 
     for y in range(len(inp)) {
         x = 0;
@@ -129,7 +134,7 @@ main() {
         while x < len(inp[y]) {
             num = "";
             dx = 0;
-            while x+dx < len(inp[y]) && inp[y][x+dx] in map(str, range(10)) {
+            while x+dx < len(inp[y]) && inp[y][x+dx] in string_numbers {
                 num += inp[y][x+dx];
                 dx++;
             }

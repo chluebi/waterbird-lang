@@ -10,11 +10,20 @@ use std::env;
 
 pub fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <filename>", args[0]);
+    
+    let profile = args.contains(&String::from("--profile"));
+    
+    let args_cleaned: Vec<String> = args.iter()
+        .filter(|arg| !arg.starts_with("--"))
+        .cloned()
+        .collect();
+
+    if args_cleaned.len() < 2 {
+        eprintln!("Usage: {} <filename> [--profile]", args[0]);
         std::process::exit(1);
     }
-    let filename = args[1].clone(); 
+    
+    let filename = args_cleaned[1].clone(); 
 
-    runner::run(filename);
+    runner::run(filename, profile);
 }
