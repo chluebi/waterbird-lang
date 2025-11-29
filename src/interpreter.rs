@@ -2238,6 +2238,43 @@ fn call_builtin(
             }
         },
 
+        "List.index" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![
+                    ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0},
+                    ast::Argument {name: String::from("elt"), arg_type: None, loc: 0..0}
+                ],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let l_val = args_map.get("l").unwrap();
+            let elt_val = args_map.get("elt").unwrap();
+            let l_loc = &positional_arguments.get(0).unwrap().loc;
+
+            match l_val {
+                Value::List(ptr) => {
+                    let list_ref = state.heap.get_list(*ptr, Some(l_loc))?;
+                    
+                    let index = list_ref.iter().position(|x| deep_equals(x, elt_val, &state.heap));
+
+                    return Ok(Ok(Value::Int(match index {Some(i) => i as i128, _ => -1})));
+                },
+                _ => return Err(InterpreterErrorMessage {
+                    error: InterpreterError::TypeError { expected: "list".to_string(), got: l_val.get_type_name() },
+                    loc: Some(l_loc.clone())
+                })
+            }
+        },
+
         "List.remove" => {
             let contract = ast::FunctionPrototype {
                 positional_arguments: vec![
@@ -2599,6 +2636,91 @@ fn call_builtin(
                 error: InterpreterError::ArgumentError("Too many arguments provided to split".to_string()),
                 loc: Some(loc.clone())
             })
+        },
+
+        "count" | "List.count" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![
+                    ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0},
+                ],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let l_val = args_map.get("l").unwrap();
+            let l_loc = &positional_arguments.get(0).unwrap().loc;
+
+            return match l_val {
+                Value::List(ptr) => {
+                    let l = state.heap.get_list(*ptr, Some(&l_loc))?.clone();
+                    let mut counts = HashMap::new();
+
+                    for elt in l {
+                        let count = counts.entry(elt.clone()).or_insert(Value::Int(0));
+                        match *count {
+                            Value::Int(i) => {*count = Value::Int(i+1)},
+                            _ => unreachable!()
+                        }
+                    }
+                    
+                    let list_ptr = state.heap.alloc(HeapObject::Dictionary(counts));
+                    Ok(Ok(Value::Dictionary(list_ptr)))
+                },
+                _ => Err(InterpreterErrorMessage {
+                    error: InterpreterError::TypeError { expected: "list".to_string(), got: l_val.get_type_name() },
+                    loc: Some(l_loc.clone())
+                })
+            }
+        },
+
+        "any_true" | "List.any_true" => {
+            let contract = ast::FunctionPrototype {
+                positional_arguments: vec![
+                    ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0},
+                ],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: None
+            };
+
+            let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
+            let args_map = match args_map {
+                Ok(v) => v,
+                Err(v) => return Ok(Err(v))
+            };
+
+            let l_val = args_map.get("l").unwrap();
+            let l_loc = &positional_arguments.get(0).unwrap().loc;
+
+            match l_val {
+                Value::List(ptr) => {
+                    let l = state.heap.get_list(*ptr, Some(&l_loc))?.clone();
+                    for elt in l {
+                        match elt {
+                            Value::Bool(true) => return Ok(Ok(Value::Bool(true))),
+                            Value::Bool(_) => (),
+                            _ => return Err(InterpreterErrorMessage {
+                                error: InterpreterError::TypeError { expected: "bool".to_string(), got: elt.get_type_name() },
+                                loc: Some(l_loc.clone())
+                            })
+                        }
+                    }
+                    return Ok(Ok(Value::Bool(false)));
+                },
+                _ => return Err(InterpreterErrorMessage {
+                    error: InterpreterError::TypeError { expected: "list".to_string(), got: l_val.get_type_name() },
+                    loc: Some(l_loc.clone())
+                })
+            }
         },
 
         "assert" => {
@@ -3041,6 +3163,8 @@ fn get_builtins() -> Vec<(&'static str, Value)> {
         ("tuple", Value::FunctionPtr(String::from("tuple"))),
         ("list", Value::FunctionPtr(String::from("list"))),
         ("dict", Value::FunctionPtr(String::from("dict"))),
+        ("count", Value::FunctionPtr(String::from("count"))),
+        ("any_true", Value::FunctionPtr(String::from("any_true"))),
         ("clone", Value::FunctionPtr(String::from("clone"))),
         ("len", Value::FunctionPtr(String::from("len"))),
         ("print", Value::FunctionPtr(String::from("print"))),
