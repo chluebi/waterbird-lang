@@ -1,0 +1,247 @@
+map(f, list) {
+    new = [];
+    for e in list {
+        new.push(f(e));
+    }
+    new
+}
+
+filter(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            new.push(e);
+        }
+    }
+    new
+}
+
+any(p, list) {
+    new = [];
+    for e in list {
+        if p(e) {
+            return true;
+        }
+    }
+    return false;
+}
+
+any_true(list) {
+    new = [];
+    for e in list {
+        if e {
+            return true;
+        }
+    }
+    return false;
+}
+
+fold(step, start, list) {
+    if list == [] {
+        return start;
+    } else {
+        return fold(step, step(list[0], start), list[1:]);
+    }
+}
+
+sum(list) {
+    s = 0;
+    for x in list {
+        s += x;
+    }
+    s
+}
+
+concat(list) {
+    s = [];
+    for x in list {
+        s += x;
+    }
+    s
+}
+
+
+surroundings_horizontal(inp, y, x, length=1) {
+    ret = [];
+
+    dx = -1;
+    for dy in range(-1, 2) {
+        if y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+            ret.push(((y+dy), (x+dx)));
+        }
+    }
+
+    dx = -1;
+    for dy in [-1, 1] {
+        for dx in range(-1, length) {
+            if y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+                ret.push(((y+dy), (x+dx)));
+            }
+        }
+    }
+
+    dx = length;
+    for dy in range(-1, 2) {
+        if y+dy >= 0 && y+dy < len(inp) && x+dx >= 0 && x+dx < len(inp[y+dy]) {
+            ret.push(((y+dy), (x+dx)));
+        }
+    }
+
+    return ret;
+}
+
+
+enumerate(list) {
+    new_list = [];
+    for i in range(len(list)) {
+        new_list.push((i, list[i]));
+    }
+    new_list
+}
+
+min(*vals) {
+    smallest = vals[0];
+    for v in vals[1:] {
+        if v < smallest {
+            smallest = v;
+        }
+    }
+    smallest
+}
+
+max(*vals) {
+    largest = vals[0];
+    for v in vals[1:] {
+        if v > largest {
+            largest = v;
+        }
+    }
+    largest
+}
+
+
+sort(l, key=|x|{x}) {
+
+    for i in range(1, len(l)) {
+        current_value = l[i];
+        current_key = key(current_value);
+        j = i - 1;
+
+        while j >= 0 && key(l[j]) > current_key {
+            l[j+1] = l[j];
+            j = j - 1;
+        }
+
+        l[j+1] = current_value;
+    }
+    
+    return l;
+}
+
+
+pairs(l) {
+    ret = [(l[i], l[i+1]) for i in range(0, len(l), 2)];
+    ret
+}
+
+zip(l1, l2) {
+    assert(len(l1) == len(l2));
+    [(l1[i], l2[i]) for i in range(len(l1))]
+}
+
+sqrt(x) {
+    if x == 0 {
+        return 0;
+    }
+    if x == 1 {
+        return 1;
+    }
+
+    min = 0;
+    max = x;
+    guess = min + (max - min) / 2;
+
+    while true {
+        if guess == x / guess {
+            return guess;
+        } else if guess < x / guess {
+            min = guess + 1;
+            if min > max {
+                return guess;
+            }
+        } else {
+            max = guess - 1;
+            if max < min {
+                return guess-1;
+            }
+        }
+        guess = min + (max - min) / 2;
+    }
+}
+
+sqrt_ceil(x) {
+    sq = sqrt(x);
+    if sq * sq < x {
+        return sq + 1;
+    }
+    sq
+}
+
+binary_search(pred, min, max) {
+    min = 0;
+    max = x;
+    guess = min + (max - min) / 2;
+
+    while true {
+        dist = pred(x);
+        if dist == 0 {
+            return guess;
+        } else if dist < 0 {
+            min = guess + 1;
+            if min >= max {
+                return guess;
+            }
+        } else if dist > 0 {
+            max = guess - 1;
+            if max <= min {
+                return guess-1;
+            }
+        }
+        guess = min + (max - min) / 2;
+    }
+}
+
+
+solve(times, distances) {
+    s = 1;
+    for time, distance in zip(times, distances) {
+        count = 0;
+        left_side = (time - sqrt_ceil(time*time - 4*distance))/2 + 1;
+        s *= (time - 2 * left_side) + 1;
+    }
+    s
+} 
+
+
+main() {
+    inp = read("test_data/aoc_2023_6");
+    if inp[-1] == "\n" {
+        inp = inp[:-1];
+    }
+    inp = inp.split("\n");
+    times, distances = map(|x| {
+        sp = x.split();
+        map(int, sp[1:])
+    }, inp);
+
+    times2, distances2 = map(|x| {
+        sp = x.split();
+        s = "";
+        for elt in sp[1:] {
+            s += elt;
+        }
+        [int(s)]
+    }, inp);
+    
+    (solve(times, distances), solve(times2, distances2))
+} 

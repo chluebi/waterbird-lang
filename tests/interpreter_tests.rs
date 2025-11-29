@@ -34,11 +34,13 @@ fn tests_basic() {
         ("programs/test_listcomp", Ok(interpreter::Value::Void)),
         ("programs/test_listcomp2", Ok(interpreter::Value::Void)),
         ("programs/test_loop", Ok(interpreter::Value::Int(36))),
+        ("programs/test_sqrt", Ok(interpreter::Value::Void)),
         ("programs/aoc_2023_1", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(55123), interpreter::Value::Int(55260)]))),
         ("programs/aoc_2023_2", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(2449), interpreter::Value::Int(63981)]))),
         ("programs/aoc_2023_3", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(528819), interpreter::Value::Int(80403602)]))),
         ("programs/aoc_2023_4", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(26426), interpreter::Value::Int(6227972)]))),
         ("programs/aoc_2023_5", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(1181555926), interpreter::Value::Int(37806486)]))),
+        ("programs/aoc_2023_6", Ok(interpreter::Value::Tuple(vec![interpreter::Value::Int(741000), interpreter::Value::Int(38220708)]))),
     ];
 
     for (path, res) in programs {

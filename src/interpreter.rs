@@ -36,7 +36,7 @@ macro_rules! eval_or_return_from_stmt {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Value {
     Void,
-    Int(i64),
+    Int(i128),
     Bool(bool),
     String(Ptr),
     Tuple(Vec<Value>),
@@ -844,7 +844,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             // todo: accesses
             Ok(Ok(Value::FunctionPtr(format!("{}.{}", namespace, v))))
         },
-        ast::Expr::Int(ref i) => Ok(Ok(Value::Int(*i))),
+        ast::Expr::Int(ref i) => Ok(Ok(Value::Int(*i as i128))),
         ast::Expr::Bool(ref b) => Ok(Ok(Value::Bool(*b))),
         ast::Expr::Str(ref s) => {
             let ptr = state.heap.intern_string(String::from(s));
@@ -1452,11 +1452,11 @@ fn wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed_leng
     };
 
     if indexer_value < 0 {
-        indexer_value = (indexed_length as i64) + indexer_value;
+        indexer_value = (indexed_length as i128) + indexer_value;
     }
     
 
-    if indexer_value < 0 || indexer_value >= (indexed_length as i64) {
+    if indexer_value < 0 || indexer_value >= (indexed_length as i128) {
         return Err(InterpreterErrorMessage {
             error: InterpreterError::IndexOutOfBounds,
             loc: Some(indexer_loc)
@@ -1480,7 +1480,7 @@ fn soft_wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed
     };
 
     if indexer_value < 0 {
-        indexer_value = (indexed_length as i64) + indexer_value;
+        indexer_value = (indexed_length as i128) + indexer_value;
     }
 
     return Ok(indexer_value as usize);
@@ -1732,26 +1732,23 @@ fn call_function(
             Ok(Ok(v))
         },
         Ok(_) => {
-            return Err(InterpreterErrorMessage {
-                error: InterpreterError::MissingReturnValue,
-                loc: Some(loc.clone())
-            })
+            return Ok(Ok(Value::Void))
         },
         Err(e) => return Err(e)
     }
 }
 
-fn get_len(value: &Value, heap: &Heap, arg_loc: &ast::Loc) -> Result<i64, InterpreterErrorMessage> {
+fn get_len(value: &Value, heap: &Heap, arg_loc: &ast::Loc) -> Result<i128, InterpreterErrorMessage> {
     match value {
         Value::String(ptr) => {
-            Ok(heap.get_string(*ptr, Some(arg_loc))?.chars().count() as i64)
+            Ok(heap.get_string(*ptr, Some(arg_loc))?.chars().count() as i128)
         },
-        Value::Tuple(v) => Ok(v.len() as i64),
+        Value::Tuple(v) => Ok(v.len() as i128),
         Value::List(ptr) => {
-            Ok(heap.get_list(*ptr, Some(arg_loc))?.len() as i64)
+            Ok(heap.get_list(*ptr, Some(arg_loc))?.len() as i128)
         },
         Value::Dictionary(ptr) => {
-            Ok(heap.get_dict(*ptr, Some(arg_loc))?.len() as i64)
+            Ok(heap.get_dict(*ptr, Some(arg_loc))?.len() as i128)
         },
         _ => Err(InterpreterErrorMessage {
             error: InterpreterError::TypeError {
@@ -1863,7 +1860,7 @@ fn call_builtin(
                         let s = state.heap.get_string(*ptr, None)?;
                         
                         // Attempt to parse the string
-                        match s.parse::<i64>() {
+                        match s.parse::<i128>() {
                             Ok(i) => Value::Int(i),
                             Err(_) => {
                                 return Err(InterpreterErrorMessage {
@@ -2435,7 +2432,7 @@ fn call_builtin(
                 _ => return Err(InterpreterErrorMessage {error: InterpreterError::InternalError(String::from("List expected")), loc: Some(loc.clone())})
             };
 
-            let values: Result<Vec<i64>, InterpreterErrorMessage> = values.iter().map(|x| {
+            let values: Result<Vec<i128>, InterpreterErrorMessage> = values.iter().map(|x| {
                 match x {
                     Value::Int(i) => Ok(i.clone()),
                     _ => Err(InterpreterErrorMessage {error: InterpreterError::ArgumentError(String::from("Range expects int arguments")), loc: Some(loc.clone())})
@@ -2748,11 +2745,11 @@ fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program)
                     let indexed_length: usize = get_indexed_length(state, &original_indexed_value, indexed)?;
 
                     if indexer_value < 0 {
-                        indexer_value = (indexed_length as i64) + indexer_value;
+                        indexer_value = (indexed_length as i128) + indexer_value;
                     }
                     
 
-                    if indexer_value < 0 || indexer_value >= (indexed_length as i64) {
+                    if indexer_value < 0 || indexer_value >= (indexed_length as i128) {
                         return Err(InterpreterErrorMessage {
                             error: InterpreterError::IndexOutOfBounds,
                             loc: Some(indexer.loc.clone())
@@ -3072,7 +3069,9 @@ pub fn interpret(program: &ast::Program, enable_profiling: bool) -> Result<Value
 
     let main_func = program.functions.get("main").unwrap();
 
-    return Ok(run_statement(&mut state, &main_func.body, program)?.unwrap());
+    return match call_function(&mut state, "main", &main_func.loc, &vec![], &None, &vec![], &None, program)? {
+        Ok(e) | Err(e) => Ok(e)
+    };
 }
 
 pub fn interpret_with_state(program: &ast::Program, enable_profiling: bool) -> Result<(Value, State), InterpreterErrorMessage> {
