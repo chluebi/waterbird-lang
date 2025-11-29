@@ -1,0 +1,41 @@
+sqrt(x) {
+    if x == 0 {
+        return 0;
+    }
+    if x == 1 {
+        return 1;
+    }
+
+    min = 0;
+    max = x;
+    guess = min + (max - min) / 2;
+
+    while true {
+        if guess == x / guess {
+            return guess;
+        } else if guess < x / guess {
+            min = guess + 1;
+            if min > max {
+                return guess;
+            }
+        } else {
+            max = guess - 1;
+            if max < min {
+                return guess-1;
+            }
+        }
+        guess = min + (max - min) / 2;
+    }
+}
+
+
+main() {
+    large = 100000000000000;
+    for i in range(1000) + range(large, large+1000) {
+        assert(sqrt(i * i) == i);
+    }
+    for k in range(1000) + range(large, large+1000) {
+        sq = sqrt(k);
+        assert(sq * sq <= k);
+    }
+}
