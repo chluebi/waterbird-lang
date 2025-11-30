@@ -6,7 +6,7 @@ Waterbird is another toy language of mine, intended for maximum useability for m
 
 
 # Use it
-##### I highly advise against using this language without accepting its many undocumentd quirks
+##### I highly advise against using this language without accepting its many undocumented quirks
 
 Compile the compiler
 ```bash
