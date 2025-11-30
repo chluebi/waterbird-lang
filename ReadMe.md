@@ -10,7 +10,7 @@ Waterbird is another toy language of mine, intended for maximum useability for m
 
 Compile the compiler
 ```bash
-cargo run --release
+cargo build --release
 ```
 
 Run the program "test_sqrt" in the folder "programs"
