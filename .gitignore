@@ -1,3 +1,5 @@
 /target
 *.swp
 .direnv
+**/input
+**/test_data
