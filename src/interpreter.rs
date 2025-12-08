@@ -1234,7 +1234,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
             }
 
             let indexed_length: usize = get_indexed_length(state, &original_indexed_value, indexed)?;
-            let index = wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?;
+            let index = wrap_index(&original_indexer_value, &indexer.loc, indexed_length)?;
             
 
             match original_indexed_value {
@@ -1285,7 +1285,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     let value_indexer_start: usize = match indexer_start {
                         Some(indexer) => {
                             let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
-                            soft_wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?
+                            soft_wrap_index(&original_indexer_value, &indexer.loc, indexed_length)?
                         },
                         _ => 0
                     };
@@ -1293,7 +1293,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     let value_indexer_border: usize = match indexer_border {
                         Some(indexer) => {
                             let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
-                            soft_wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?
+                            soft_wrap_index(&original_indexer_value, &indexer.loc, indexed_length)?
                         },
                         _ => indexed_length
                     };
@@ -1315,7 +1315,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     let value_indexer_start: usize = match indexer_border {
                         Some(indexer) => {
                             let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
-                            soft_wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?
+                            soft_wrap_index(&original_indexer_value, &indexer.loc, indexed_length)?
                         },
                         _ => 0
                     };
@@ -1324,7 +1324,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                     let value_indexer_border: usize = match indexer_start {
                         Some(indexer) => {
                             let original_indexer_value = eval_or_return_from_expr!(state, indexer, program);
-                            soft_wrap_index(original_indexer_value, indexer.loc.clone(), indexed_length)?
+                            soft_wrap_index(&original_indexer_value, &indexer.loc, indexed_length)?
                         },
                         _ => indexed_length
                     };
@@ -1439,7 +1439,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
     }
 }
 
-fn wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed_length: usize) -> Result<usize, InterpreterErrorMessage> {
+fn wrap_index(original_indexer_value: &Value, indexer_loc: &ast::Loc, indexed_length: usize) -> Result<usize, InterpreterErrorMessage> {
     let mut indexer_value = match original_indexer_value.clone() {
         Value::Int(i) => i,
         _ => return Err(InterpreterErrorMessage {
@@ -1447,7 +1447,7 @@ fn wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed_leng
                 expected: "int".to_string(), 
                 got: original_indexer_value.get_type_name() 
             },
-            loc: Some(indexer_loc)
+            loc: Some(indexer_loc.clone())
         })
     };
 
@@ -1459,7 +1459,7 @@ fn wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed_leng
     if indexer_value < 0 || indexer_value >= (indexed_length as i128) {
         return Err(InterpreterErrorMessage {
             error: InterpreterError::IndexOutOfBounds,
-            loc: Some(indexer_loc)
+            loc: Some(indexer_loc.clone())
         });
     }
 
@@ -1467,7 +1467,7 @@ fn wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed_leng
 }
 
 // no bounds check
-fn soft_wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed_length: usize) -> Result<usize, InterpreterErrorMessage> {
+fn soft_wrap_index(original_indexer_value: &Value, indexer_loc: &ast::Loc, indexed_length: usize) -> Result<usize, InterpreterErrorMessage> {
     let mut indexer_value = match original_indexer_value.clone() {
         Value::Int(i) => i,
         _ => return Err(InterpreterErrorMessage {
@@ -1475,7 +1475,7 @@ fn soft_wrap_index(original_indexer_value: Value, indexer_loc: ast::Loc, indexed
                 expected: "int".to_string(), 
                 got: original_indexer_value.get_type_name() 
             },
-            loc: Some(indexer_loc)
+            loc: Some(indexer_loc.clone())
         })
     };
 
@@ -2221,7 +2221,7 @@ fn call_builtin(
                         list_len - 1
                     } else if optional_args.len() == 1 {
                         // Parse index
-                        wrap_index(optional_args[0].clone(), l_loc.clone(), list_len)?
+                        wrap_index(&optional_args[0], &l_loc, list_len)?
                     } else {
                         return Err(InterpreterErrorMessage {
                             error: InterpreterError::ArgumentError("List.pop expects at most 1 argument (index)".to_string()),
@@ -2230,6 +2230,7 @@ fn call_builtin(
                     };
 
                     let val = state.heap.get_list_mut(*ptr, Some(l_loc))?.remove(index);
+                    return Ok(Ok(val));
                 },
                 _ => return Err(InterpreterErrorMessage {
                     error: InterpreterError::TypeError { expected: "list".to_string(), got: l_val.get_type_name() },
@@ -2307,11 +2308,9 @@ fn call_builtin(
                     match index_to_remove {
                         Some(idx) => {
                             state.heap.get_list_mut(*ptr, Some(l_loc))?.remove(idx);
+                            return Ok(Ok(Value::Int(idx.try_into().unwrap())));
                         },
-                        _ => return Err(InterpreterErrorMessage {
-                            error: InterpreterError::ArgumentError("Element not found in list".to_string()),
-                            loc: Some(loc.clone())
-                        })
+                        _ => return Ok(Ok(Value::Int(-1)))
                     }
                 },
                 _ => return Err(InterpreterErrorMessage {
@@ -2319,7 +2318,7 @@ fn call_builtin(
                     loc: Some(l_loc.clone())
                 })
             }
-        },
+        }, 
 
         "Dict.keys" => {
             let contract = ast::FunctionPrototype {
