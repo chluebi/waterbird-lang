@@ -66,7 +66,7 @@ impl fmt::Display for Type {
                 // Generics, if any
                 if !generics.is_empty() {
                     let gens = generics.join(", ");
-                    write!(f, "(gen: {}; ", gens)?;
+                    write!(f, "<{}>(", gens)?;
                 } else {
                     write!(f, "(")?;
                 }
@@ -99,6 +99,18 @@ impl fmt::Display for Type {
                 write!(f, ") -> {}", return_type)
             }         
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenericLiteral {
+    pub name: String,
+    pub loc: Loc
+}
+
+impl fmt::Display for GenericLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+       write!(f, "{}", self.name)
     }
 }
 
@@ -536,6 +548,7 @@ impl fmt::Display for Argument {
 pub struct KeywordArgument {
     pub name: String,
     pub expr: LocExpr,
+    pub arg_type: Option<LocTypeLiteral>,
     pub loc: Loc
 }
 
@@ -548,6 +561,7 @@ impl fmt::Display for KeywordArgument {
 
 #[derive(Debug, Clone)]
 pub struct FunctionPrototype {
+    pub generics: Vec<GenericLiteral>,
     pub positional_arguments: Vec<Argument>,
     pub variadic_argument: Option<Argument>,
     pub keyword_arguments: Vec<KeywordArgument>,
