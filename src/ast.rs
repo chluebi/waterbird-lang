@@ -46,9 +46,9 @@ impl fmt::Display for Type {
             Type::Unknown => write!(f, "unknown"),
             Type::Generic(s) => write!(f, "{}", s),
             Type::Void => write!(f, "()"),
-            Type::Int => write!(f, "int"),
-            Type::Bool => write!(f, "bool"),
-            Type::Str => write!(f, "str"),
+            Type::Int => write!(f, "Int"),
+            Type::Bool => write!(f, "Bool"),
+            Type::Str => write!(f, "String"),
             Type::Tuple(type_vec) => {
                 let parts: Vec<String> = type_vec.iter().map(|t| format!("{}", t)).collect();
                 write!(f, "({})", parts.join(", "))
