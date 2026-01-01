@@ -1,0 +1,7 @@
+add(x: Int, y: Int) -> Int {
+    x + y
+}
+
+main() {
+    add(1, 2)
+}
