@@ -1,5 +1,5 @@
 [package]
-name = "waterbird-lang"
+name = "waterbird"
 version = "0.1.0"
 edition = "2024"
 
@@ -12,3 +12,5 @@ unescaper = "0.1.6"
 [build-dependencies]
 lalrpop = {version = "0.22.2"}
 
+[[bin]]
+name = "typechecker"

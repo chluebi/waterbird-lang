@@ -2,7 +2,8 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::str;
 
-use crate::parser;
+use crate::ast::Program;
+use crate::{parser, typechecker};
 use crate::parse_ast;
 use crate::interpreter;
 
@@ -119,4 +120,57 @@ pub fn run(path: String, enable_profiling: bool) -> () {
             }
         }
     };
+}
+
+
+pub fn typecheck(path: String) -> () { 
+    let program_text = read_file(&path).unwrap();
+
+    let program = match parser::GrammarParser::new().parse(&program_text) {
+        Ok(program) => program,
+        Err(e) => {
+            let span = match e {
+                lalrpop_util::ParseError::InvalidToken { location } => Some((location, location+1)),
+                lalrpop_util::ParseError::UnrecognizedEof {location, ..} => Some((location, location+1)),
+                lalrpop_util::ParseError::UnrecognizedToken { token: (start, _, end), .. } => Some((start, end)),
+                lalrpop_util::ParseError::ExtraToken { token: (start, _, end) } => Some((start, end)),
+                lalrpop_util::ParseError::User { .. } => None
+            };
+
+            match span {
+                Some((start, end)) => {
+                    let original_code_string = get_error_snippet(&program_text, start, end);
+                    println!("Parsing failed {}\n{}", e, original_code_string);
+                    return;
+                },
+                _ => {
+                    println!("Parsing failed {}:\n[Unknown Location]", e);
+                    return;
+                }
+            }
+        }
+    };
+
+
+    let program = match parse_ast::Program::preprocess(program) {
+        Ok(program) => program,
+        Err(e) => {
+            match e.loc.clone() {
+                Some(range) => {
+                    let original_code_string = get_error_snippet(&program_text, range.start, range.end);
+                    println!("Program Failed: {}\n{}", e, original_code_string);
+                    return;
+                },
+                _ => {
+                    println!("Program Failed {}:\n[Unknown Location]", e);
+                    return;
+                }
+            }
+        }
+    };
+
+    println!("{}", program);
+
+
+    program.typecheck();
 }
