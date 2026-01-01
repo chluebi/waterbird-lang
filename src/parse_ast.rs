@@ -156,7 +156,7 @@ pub struct LocTypeLiteral {
 impl LocTypeLiteral {
     fn preprocess(t: Self) -> Result<ast::LocTypeLiteral, PreprocessingErrorMessage> {
         Ok(ast::LocTypeLiteral {
-            expr: TypeLiteral::preprocess(t.typ)?,
+            typ: TypeLiteral::preprocess(t.typ)?,
             loc: t.loc
         })
     }

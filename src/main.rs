@@ -5,6 +5,7 @@ mod parse_ast;
 mod ast;
 mod interpreter;
 mod runner;
+mod typechecker;
 
 use std::env;
 

@@ -3,7 +3,8 @@ use std::io::{self, Read};
 use std::str;
 
 use crate::ast::Program;
-use crate::{parser, typechecker};
+use crate::parser;
+use crate::typechecker;
 use crate::parse_ast;
 use crate::interpreter;
 
@@ -172,5 +173,7 @@ pub fn typecheck(path: String) -> () {
     println!("{}", program);
 
 
-    program.typecheck();
+    match program.typecheck() {
+        _ => todo!()
+    };
 }

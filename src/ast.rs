@@ -33,9 +33,9 @@ pub enum Type {
     Callable {
         generics: Vec<String>,
         positional_arguments: Vec<Type>,
-        variadic_argument: Box<Option<Type>>,
+        variadic_argument: Option<Box<Type>>,
         keyword_arguments: Vec<KeywordArgumentType>,
-        keyword_variadic_argument: Box<Option<Type>>,
+        keyword_variadic_argument: Option<Box<Type>>,
         return_type: Box<Type>
     }
 }
@@ -192,13 +192,13 @@ impl fmt::Display for TypeLiteral {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocTypeLiteral {
-    pub expr: TypeLiteral,
+    pub typ: TypeLiteral,
     pub loc: Loc
 }
 
 impl fmt::Display for LocTypeLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.expr)
+        write!(f, "{}", self.typ)
     }
 }
 
