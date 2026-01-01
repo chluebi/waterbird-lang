@@ -482,7 +482,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "waterbird-lang"
+name = "waterbird"
 version = "0.1.0"
 dependencies = [
  "lalrpop",
