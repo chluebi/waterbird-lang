@@ -42,7 +42,26 @@ impl fmt::Display for PreprocessingErrorMessage {
 }
 
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenericLiteral {
+    pub name: String,
+    pub loc: Loc
+}
 
+impl fmt::Display for GenericLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+       write!(f, "{}", self.name)
+    }
+}
+
+impl GenericLiteral {
+    fn preprocess(g: Self) -> Result<ast::GenericLiteral, PreprocessingErrorMessage> {
+        Ok(ast::GenericLiteral {
+            name: g.name,
+            loc: g.loc
+        })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeywordArgumentTypeLiteral {
@@ -906,13 +925,15 @@ pub enum Argument {
 #[derive(Debug, Clone)]
 pub struct LocArgument {
     pub argument: Argument,
-    pub loc: Range<usize>
+    pub loc: Range<usize>,
+    pub typ: Option<LocTypeLiteral>
 }
 
 
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
+    pub generics: Vec<GenericLiteral>,
     pub arguments: Vec<LocArgument>,
     pub body: Box<LocStmt>,
     pub loc: Range<usize>
@@ -997,7 +1018,7 @@ impl Function {
 
                     positional_arguments.push(ast::Argument {
                         name: name.clone(),
-                        arg_type: None,
+                        arg_type: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
                         loc: arg.loc.clone(),
                     });
                 }
@@ -1014,7 +1035,7 @@ impl Function {
                     if variadic_argument.is_none() {
                         variadic_argument = Some(ast::Argument {
                             name: name.clone(),
-                            arg_type: None,
+                            arg_type: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
                             loc: arg.loc.clone(),
                         });
                     } else {
@@ -1039,6 +1060,7 @@ impl Function {
                     keyword_arguments.push(ast::KeywordArgument {
                         name: name.clone(),
                         expr: LocExpr::preprocess(expression.clone())?,
+                        arg_type: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
                         loc: arg.loc.clone(),
                     });
                 }
@@ -1046,7 +1068,7 @@ impl Function {
                     if keyword_variadic_argument.is_none() {
                         keyword_variadic_argument = Some(ast::Argument {
                             name: name.clone(),
-                            arg_type: None,
+                            arg_type: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
                             loc: arg.loc.clone(),
                         });
                     } else {
@@ -1061,9 +1083,12 @@ impl Function {
             }
         }
 
+        let generics: Result<Vec<ast::GenericLiteral>, PreprocessingErrorMessage> = func.generics.into_iter().map(GenericLiteral::preprocess).collect();
+
         Ok(ast::Function {
             name: func.name.clone(),
             contract: ast::FunctionPrototype {
+                generics: generics?,
                 positional_arguments,
                 variadic_argument,
                 keyword_arguments,
