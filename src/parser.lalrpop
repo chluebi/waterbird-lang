@@ -30,7 +30,27 @@ Functions: HashMap<String, parse_ast::Function> = {
 };
 
 Function: parse_ast::Function = {
-    <start: @L> <name:Ident> <g:Generics>"(" <args:Arguments> ")" <end: @R> "{" <body:Body> "}" => {
+    <start: @L> <name:Ident> <g:Generics> "()" <end: @R> "{" <body:Body> "}" => {
+        parse_ast::Function {
+            name: name,
+            generics: g,
+            arguments: vec![],
+            return_type: None,
+            body: Box::new(body),
+            loc: start..end
+        }
+    },
+    <start: @L> <name:Ident> <g:Generics> "()" <end: @R> "->" <t:Typ> "{" <body:Body> "}" => {
+        parse_ast::Function {
+            name: name,
+            generics: g,
+            arguments: vec![],
+            return_type: Some(t),
+            body: Box::new(body),
+            loc: start..end
+        }
+    },
+    <start: @L> <name:Ident> <g:Generics> "(" <args:Arguments> ")" <end: @R> "{" <body:Body> "}" => {
         parse_ast::Function {
             name: name,
             generics: g,
@@ -40,7 +60,7 @@ Function: parse_ast::Function = {
             loc: start..end
         }
     },
-    <start: @L> <name:Ident> <g:Generics>"(" <args:Arguments> ")" <end: @R> "->" <t:Typ> "{" <body:Body> "}" => {
+    <start: @L> <name:Ident> <g:Generics> "(" <args:Arguments> ")" <end: @R> "->" <t:Typ> "{" <body:Body> "}" => {
         parse_ast::Function {
             name: name,
             generics: g,

@@ -1704,7 +1704,8 @@ fn call_function(
             if let Some(start) = profiler_start_time {
                 state.profiler.record(function_name, start.elapsed());
             }
-            return call_builtin(state, function_name, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)
+            todo!()
+            // return call_builtin(state, function_name, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)
         }
     };
 
