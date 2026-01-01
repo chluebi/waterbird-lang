@@ -35,6 +35,17 @@ Function: parse_ast::Function = {
             name: name,
             generics: g,
             arguments: args,
+            return_type: None,
+            body: Box::new(body),
+            loc: start..end
+        }
+    },
+    <start: @L> <name:Ident> <g:Generics>"(" <args:Arguments> ")" <end: @R> "->" <t:Typ> "{" <body:Body> "}" => {
+        parse_ast::Function {
+            name: name,
+            generics: g,
+            arguments: args,
+            return_type: Some(t),
             body: Box::new(body),
             loc: start..end
         }
@@ -926,6 +937,7 @@ match {
     "Str",
     "List",
     "Dict",
+    "->",
     //
 
     "=",
