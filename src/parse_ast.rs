@@ -940,6 +940,7 @@ pub struct Function {
     pub name: String,
     pub generics: Vec<GenericLiteral>,
     pub arguments: Vec<LocArgument>,
+    pub return_type: Option<LocTypeLiteral>,
     pub body: Box<LocStmt>,
     pub loc: Range<usize>
 }
@@ -1023,8 +1024,9 @@ impl Function {
 
                     positional_arguments.push(ast::Argument {
                         name: name.clone(),
-                        arg_type: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
+                        arg_type_literal: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
                         loc: arg.loc.clone(),
+                        typ: ast::Type::Unknown
                     });
                 }
                 Argument::Variadic(name) => {
@@ -1040,8 +1042,9 @@ impl Function {
                     if variadic_argument.is_none() {
                         variadic_argument = Some(ast::Argument {
                             name: name.clone(),
-                            arg_type: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
+                            arg_type_literal: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
                             loc: arg.loc.clone(),
+                            typ: ast::Type::Unknown
                         });
                     } else {
                         return Err(PreprocessingErrorMessage {
@@ -1065,16 +1068,18 @@ impl Function {
                     keyword_arguments.push(ast::KeywordArgument {
                         name: name.clone(),
                         expr: LocExpr::preprocess(expression.clone())?,
-                        arg_type: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
+                        arg_type_literal: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
                         loc: arg.loc.clone(),
+                        typ: ast::Type::Unknown
                     });
                 }
                 Argument::KeywordVariadic(name) => {
                     if keyword_variadic_argument.is_none() {
                         keyword_variadic_argument = Some(ast::Argument {
                             name: name.clone(),
-                            arg_type: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
+                            arg_type_literal: arg.typ.map(|x| LocTypeLiteral::preprocess(x)).transpose()?,
                             loc: arg.loc.clone(),
+                            typ: ast::Type::Unknown
                         });
                     } else {
                         return Err(PreprocessingErrorMessage {
@@ -1098,7 +1103,9 @@ impl Function {
                 variadic_argument,
                 keyword_arguments,
                 keyword_variadic_argument,
-                return_type: None
+                return_type_literal: func.return_type.map(LocTypeLiteral::preprocess).transpose()?,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             },
             body: Box::new(LocStmt::preprocess(*func.body)?),
             loc: func.loc,

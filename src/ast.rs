@@ -530,14 +530,15 @@ impl fmt::Display for LocStmt {
 #[derive(Debug, Clone)]
 pub struct Argument {
     pub name: String,
-    pub arg_type: Option<LocTypeLiteral>,
-    pub loc: Loc 
+    pub arg_type_literal: Option<LocTypeLiteral>,
+    pub loc: Loc,
+    pub typ: Type,
 }
 
 impl fmt::Display for Argument {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)?;
-        if let Some(typ) = &self.arg_type {
+        if let Some(typ) = &self.arg_type_literal {
             write!(f, ": {}", typ)?;
         }
         Ok(())
@@ -548,8 +549,9 @@ impl fmt::Display for Argument {
 pub struct KeywordArgument {
     pub name: String,
     pub expr: LocExpr,
-    pub arg_type: Option<LocTypeLiteral>,
-    pub loc: Loc
+    pub arg_type_literal: Option<LocTypeLiteral>,
+    pub loc: Loc,
+    pub typ: Type
 }
 
 impl fmt::Display for KeywordArgument {
@@ -566,7 +568,9 @@ pub struct FunctionPrototype {
     pub variadic_argument: Option<Argument>,
     pub keyword_arguments: Vec<KeywordArgument>,
     pub keyword_variadic_argument: Option<Argument>,
-    pub return_type: Option<LocTypeLiteral>
+    pub return_type_literal: Option<LocTypeLiteral>,
+    pub return_typ: Type,
+    pub typ: Type
 }
 
 impl fmt::Display for FunctionPrototype {
@@ -581,7 +585,7 @@ impl fmt::Display for FunctionPrototype {
         write!(f, "{}", parts.join(", "))?;
         write!(f, ")")?;
 
-        if let Some(ret) = &self.return_type {
+        if let Some(ret) = &self.return_type_literal {
             write!(f, " -> {}", ret)?;
         }
         Ok(())
