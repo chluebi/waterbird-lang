@@ -142,16 +142,21 @@ impl TypeLiteral {
     }
 }
 
+pub struct HelperTypeIdent {
+    pub id: String,
+    pub typ: Option<LocTypeLiteral>
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocTypeLiteral {
-    pub expr: TypeLiteral,
+    pub typ: TypeLiteral,
     pub loc: Loc
 }
 
 impl LocTypeLiteral {
     fn preprocess(t: Self) -> Result<ast::LocTypeLiteral, PreprocessingErrorMessage> {
         Ok(ast::LocTypeLiteral {
-            expr: TypeLiteral::preprocess(t.expr)?,
+            expr: TypeLiteral::preprocess(t.typ)?,
             loc: t.loc
         })
     }
