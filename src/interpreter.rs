@@ -1814,6 +1814,7 @@ fn deep_clone_value(state: &mut State, value: &Value) -> Result<Value, Interpret
     }
 }
 
+/* 
 fn call_builtin(
     state: &mut State,
     function_name: &str,
@@ -2804,6 +2805,8 @@ fn read_file(file_path: &str) -> io::Result<String> {
     file.read_to_string(&mut contents)?;
     Ok(contents)
 }
+
+    */
 
 #[derive(Debug)]
 enum StatementReturn {

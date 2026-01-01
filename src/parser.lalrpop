@@ -30,9 +30,10 @@ Functions: HashMap<String, parse_ast::Function> = {
 };
 
 Function: parse_ast::Function = {
-    <start: @L> <name:Ident> "(" <args:Arguments> ")" <end: @R> "{" <body:Body> "}" => {
+    <start: @L> <name:Ident> <g:Generics>"(" <args:Arguments> ")" <end: @R> "{" <body:Body> "}" => {
         parse_ast::Function {
             name: name,
+            generics: g,
             arguments: args,
             body: Box::new(body),
             loc: start..end
@@ -53,23 +54,49 @@ Arguments: Vec<parse_ast::LocArgument> = {
 
 
 Argument: parse_ast::LocArgument = {
-    <start: @L> <i:Ident> <end: @R> => parse_ast::LocArgument{
-        argument: parse_ast::Argument::PositionalArgument(i),
-        loc: start..end
+    <start: @L> <ti:TypeIdent> <end: @R> => parse_ast::LocArgument{
+        argument: parse_ast::Argument::PositionalArgument(ti.id),
+        loc: start..end,
+        typ: ti.typ
     },
-    <start: @L> "*"<i:Ident> <end: @R> => parse_ast::LocArgument{
-        argument: parse_ast::Argument::Variadic(i),
-        loc: start..end
+    <start: @L> "*"<ti:TypeIdent> <end: @R> => parse_ast::LocArgument{
+        argument: parse_ast::Argument::Variadic(ti.id),
+        loc: start..end,
+        typ: ti.typ
     },
-    <start: @L> <i:Ident> "=" <e:Expression> <end: @R> => parse_ast::LocArgument{
-        argument: parse_ast::Argument::KeywordArgument(i, e),
-        loc: start..end
+    <start: @L> <ti:TypeIdent> "=" <e:Expression> <end: @R> => parse_ast::LocArgument{
+        argument: parse_ast::Argument::KeywordArgument(ti.id, e),
+        loc: start..end,
+        typ: ti.typ
     },
-    <start: @L> "**"<i:Ident> <end: @R> => parse_ast::LocArgument{
-        argument: parse_ast::Argument::KeywordVariadic(i),
-        loc: start..end
+    <start: @L> "**"<ti:TypeIdent> <end: @R> => parse_ast::LocArgument{
+        argument: parse_ast::Argument::KeywordVariadic(ti.id),
+        loc: start..end,
+        typ: ti.typ
     }
 };
+
+
+
+TypeIdent: parse_ast::HelperTypeIdent = {
+    <i: Ident> ":" <t:Typ> => parse_ast::HelperTypeIdent {id: i, typ: Some(t)},
+    <i: Ident> => parse_ast::HelperTypeIdent {id: i, typ: None}
+}
+
+
+Generics: Vec<parse_ast::GenericLiteral> = {
+    <g:Generic> "," <gs:Generics> => {
+        let mut gs = gs;
+        gs.insert(0, g);
+        gs
+    },
+    <g:Generic> => vec![g],
+    => vec![]
+};
+
+Generic: parse_ast::GenericLiteral = {
+    <start: @L> <i:Ident> <end: @R> => parse_ast::GenericLiteral { name: i, loc: start..end}
+}
 
 
 
@@ -773,6 +800,53 @@ Term: parse_ast::LocExpr = {
 }
 
 
+Typ: parse_ast::LocTypeLiteral = {
+    <start: @L> "()" <end: @R> => parse_ast::LocTypeLiteral {
+        typ: parse_ast::TypeLiteral::Void,
+        loc: start..end
+    },
+    <start: @L> "Int" <end: @R> => parse_ast::LocTypeLiteral {
+        typ: parse_ast::TypeLiteral::Int,
+        loc: start..end
+    },
+    <start: @L> "Bool" <end: @R> => parse_ast::LocTypeLiteral {
+        typ: parse_ast::TypeLiteral::Bool,
+        loc: start..end
+    },
+    <start: @L> "Str" <end: @R> => parse_ast::LocTypeLiteral {
+        typ: parse_ast::TypeLiteral::Str,
+        loc: start..end
+    },
+    <start: @L> "(" <typs:CommaSeperatedTyps> ")" <end: @R> => parse_ast::LocTypeLiteral {
+        typ: parse_ast::TypeLiteral::Tuple(typs),
+        loc: start..end
+    },
+    <start: @L> "List" "<" <t:Typ> ">" <end: @R> => parse_ast::LocTypeLiteral {
+        typ: parse_ast::TypeLiteral::List(Box::new(t)),
+        loc: start..end
+    },
+    <start: @L> "Dict" "<" <k:Typ> "," <v:Typ> ">" <end: @R> => parse_ast::LocTypeLiteral {
+        typ: parse_ast::TypeLiteral::Dict{keys: Box::new(k), values: Box::new(v)},
+        loc: start..end
+    },
+
+    <start: @L> <i:Ident> <end: @R> => parse_ast::LocTypeLiteral {
+        typ: parse_ast::TypeLiteral::Generic(i),
+        loc: start..end
+    }
+}
+
+
+CommaSeperatedTyps: Vec<parse_ast::LocTypeLiteral> = {
+    <t:Typ> "," <typs:CommaSeperatedTyps> => {
+        let mut typs = typs;
+        typs.insert(0, t);
+        typs
+    },
+    <t:Typ> => vec![t],
+    => vec![]
+}
+
 CommaSeperatedExpressions: Vec<parse_ast::LocExpr> = {
     <exp:Expression> "," <exps:CommaSeperatedExpressions> => {
         let mut exps = exps;
@@ -844,6 +918,15 @@ match {
     "false",
     "break",
     "continue",
+
+    // typing
+    "()",
+    "Int",
+    "Bool",
+    "Str",
+    "List",
+    "Dict",
+    //
 
     "=",
     "+",
