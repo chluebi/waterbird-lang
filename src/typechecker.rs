@@ -7,7 +7,8 @@ pub enum TypecheckingError {
     MissingReturnTypeAnnotation,
     UnknownType(String),
     NotExpectedType(ast::Expr, ast::Type),
-    NotSubtype(ast::Type, ast::Type)
+    NotSubtype(ast::Type, ast::Type),
+    NotAValidLocation(ast::Expr)
 }
 
 pub struct TypecheckingErrorMessage {
@@ -72,6 +73,7 @@ impl ast::TypeLiteral {
 }
 
 
+#[derive(Clone)]
 struct ProgramEnv {
     functions: HashMap<String, ast::Type>
 }
@@ -89,7 +91,7 @@ impl ast::Program {
 
         let prototype_res: Result<Vec<(String, ast::Function)>, TypecheckingErrorMessage> = self.functions.into_iter().map(|(s,f)| {
             match f.contract.typecheck(&f.loc) {
-                Ok((p, t)) => {function_type_mapping.insert(s.clone(), t); Ok((s, ast::Function {name: f.name, contract: p, body: f.body, loc: f.loc}))},
+                Ok(p) => {function_type_mapping.insert(s.clone(), p.typ.clone()); Ok((s, ast::Function {name: f.name, contract: p, body: f.body, loc: f.loc}))},
                 Err(e) => Err(e)
             }
         }).collect();
@@ -114,7 +116,11 @@ impl ast::Program {
 
 impl ast::FunctionPrototype {
 
-    pub fn typecheck(self, loc: &ast::Loc) -> Result<(Self, ast::Type), TypecheckingErrorMessage> {
+    pub fn verify(self) -> Result<(), TypecheckingErrorMessage> {
+        todo!()
+    }
+
+    pub fn typecheck(self, loc: &ast::Loc) -> Result<Self, TypecheckingErrorMessage> {
         let generics: Vec<String> = self.generics.iter().map(|x| x.name.clone()).collect();
 
         let positional_arguments: Vec<ast::Argument> = self.positional_arguments
@@ -174,7 +180,7 @@ impl ast::FunctionPrototype {
                     Some(lit) => {
                         lit.typ.validate_generics(&generics, &arg.loc)?;
                         let ann = lit.typ.get_type();
-                        if !arg.expr.expr.clone().check(&ann)? {
+                        if !arg.expr.clone().check(&ann)? {
                             return Err(TypecheckingErrorMessage {
                                 error: TypecheckingError::NotExpectedType(arg.expr.expr.clone(), ann),
                                 loc: arg.loc.clone(),
@@ -182,7 +188,7 @@ impl ast::FunctionPrototype {
                         }
                         ann
                     },
-                    _ => arg.expr.expr.infer()?
+                    _ => arg.expr.infer()?
                         .ok_or_else(|| TypecheckingErrorMessage {
                             error: TypecheckingError::MissingTypeAnnotation,
                             loc: arg.loc.clone(),
@@ -247,7 +253,7 @@ impl ast::FunctionPrototype {
         };
 
 
-        Ok((FunctionPrototype {
+        Ok(FunctionPrototype {
             generics: self.generics,
             positional_arguments,
             variadic_argument,
@@ -256,7 +262,7 @@ impl ast::FunctionPrototype {
             return_type_literal: Some(return_typ_literal),
             return_typ,
             typ: typ.clone()
-        }, typ))
+        })
     }
 }
 
@@ -267,16 +273,130 @@ impl ast::Function {
         todo!()
     }
 
-    
-
     pub fn typecheck(self, env: &ProgramEnv) -> Result<Self, TypecheckingErrorMessage> {
+        let function_typ = self.contract.typ;
+
         todo!()
     }
 
 }
 
+#[derive(Clone)]
+struct FunctionEnv {
+    program_env: ProgramEnv,
+    return_type: ast::Type,
+    variable_types: HashMap<String, ast::Type>
+}
 
-impl ast::Expr {
+impl ast::LocStmt {
+    pub fn verify(self) -> Result<(), TypecheckingErrorMessage> {
+        todo!()
+    }
+
+    pub fn typecheck(self, env: &FunctionEnv) -> Result<(Self, bool), TypecheckingErrorMessage> {
+
+        match self.stmt {
+            ast::Stmt::Assignment { target, expr } => {
+                let (expr, _) = expr.typecheck(env)?;
+                match target.expr {
+                    ast::Expr::Variable(ref var) => {
+                        let mut new_env = env.clone();
+                        new_env.variable_types.insert(var.clone(), expr.typ.clone());
+                        Ok((ast::LocStmt {stmt: ast::Stmt::Assignment { target, expr }, loc: self.loc}, false))
+                    },
+                    ast::Expr::Indexing { indexed, indexer } => {
+                        let (indexed, _) = indexed.typecheck(env)?;
+                        match indexed.typ {
+                            ast::Type::Generic(s) => todo!("Deep sigh..."),
+                            ast::Type::List(ref element_type) => {
+                                let (indexer, _) = indexer.typecheck(env)?;
+
+                                if !indexer.typ.subtypes(&ast::Type::Int) {
+                                    return Err(TypecheckingErrorMessage {
+                                        error: TypecheckingError::NotExpectedType(indexer.expr.clone(), ast::Type::Int),
+                                        loc: indexer.loc
+                                    })
+                                }
+
+                                if !expr.typ.subtypes(&element_type) {
+                                    return Err(TypecheckingErrorMessage {
+                                        error: TypecheckingError::NotExpectedType(expr.expr.clone(), *element_type.clone()),
+                                        loc: expr.loc
+                                    })
+                                }
+
+                                let indexed_typ = indexed.typ.clone();
+
+                                Ok((ast::LocStmt {stmt: ast::Stmt::Assignment { 
+                                        target: ast::LocExpr {
+                                            expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
+                                            loc: target.loc, typ: indexed_typ
+                                        },
+                                        expr: expr 
+                                    },
+                                    loc: self.loc}, false))
+                            },
+                            ast::Type::Dict{ref keys, ref values} => {
+                                let (indexer, _) = indexer.typecheck(env)?;
+
+                                if !indexer.typ.subtypes(&keys) {
+                                    return Err(TypecheckingErrorMessage {
+                                        error: TypecheckingError::NotExpectedType(indexer.expr.clone(), *keys.clone()),
+                                        loc: indexer.loc
+                                    })
+                                }
+
+                                if !expr.typ.subtypes(&values) {
+                                    return Err(TypecheckingErrorMessage {
+                                        error: TypecheckingError::NotExpectedType(expr.expr.clone(), *values.clone()),
+                                        loc: expr.loc
+                                    })
+                                }
+
+                                let indexed_typ = indexed.typ.clone();
+
+                                Ok((ast::LocStmt {stmt: ast::Stmt::Assignment { 
+                                        target: ast::LocExpr {
+                                            expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
+                                            loc: target.loc, typ: indexed_typ
+                                        },
+                                        expr: expr 
+                                    },
+                                    loc: self.loc}, false))
+                            },
+                            _ => return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::NotAValidLocation(expr.expr),
+                                loc: expr.loc
+                            })
+                        }
+                    },
+                    ast::Expr::Tuple(elements) | ast::Expr::List(elements) => todo!(),
+                    _ => return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::NotAValidLocation(target.expr.clone()),
+                        loc: target.loc.clone()
+                    })
+                }
+            },
+            ast::Stmt::FunctionCall { expr } => todo!(),
+            ast::Stmt::Return { expr } => todo!(),
+            ast::Stmt::IfElse { cond, if_body, else_body } => todo!(),
+            ast::Stmt::While { cond, body } => todo!(),
+            ast::Stmt::Block { statements } => todo!(),
+            ast::Stmt::SoftBlock { statements } => todo!(),
+            ast::Stmt::Expression { expr } => todo!(),
+            ast::Stmt::Break => todo!(),
+            ast::Stmt::Continue => todo!(),
+        }
+    }
+}
+
+
+impl ast::LocExpr {
+
+    pub fn typecheck(self, env: &FunctionEnv) -> Result<(Self, bool), TypecheckingErrorMessage> {
+        todo!()
+    }
+
     pub fn check(self, expected_type: &ast::Type) -> Result<bool, TypecheckingErrorMessage> {
         todo!()
     }
