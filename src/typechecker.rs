@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ast::{self, GenericLiteral};
+use crate::ast::{self, FunctionPrototype, GenericLiteral};
 
 pub enum TypecheckingError {
     MissingTypeAnnotation,
+    MissingReturnTypeAnnotation,
     UnknownType(String),
     NotExpectedType(ast::Expr, ast::Type),
     NotSubtype(ast::Type, ast::Type)
@@ -87,7 +88,7 @@ impl ast::Program {
         let mut function_type_mapping = HashMap::new();
 
         let prototype_res: Result<Vec<(String, ast::Function)>, TypecheckingErrorMessage> = self.functions.into_iter().map(|(s,f)| {
-            match f.contract.typecheck() {
+            match f.contract.typecheck(&f.loc) {
                 Ok((p, t)) => {function_type_mapping.insert(s.clone(), t); Ok((s, ast::Function {name: f.name, contract: p, body: f.body, loc: f.loc}))},
                 Err(e) => Err(e)
             }
@@ -113,7 +114,7 @@ impl ast::Program {
 
 impl ast::FunctionPrototype {
 
-    pub fn typecheck(self) -> Result<(Self, ast::Type), TypecheckingErrorMessage> {
+    pub fn typecheck(self, loc: &ast::Loc) -> Result<(Self, ast::Type), TypecheckingErrorMessage> {
         let generics: Vec<String> = self.generics.iter().map(|x| x.name.clone()).collect();
 
         let positional_arguments: Vec<ast::Argument> = self.positional_arguments
@@ -139,7 +140,29 @@ impl ast::FunctionPrototype {
 
         let variadic_argument: Option<ast::Argument> = match self.variadic_argument {
             Some(var) => {
-                todo!()
+                let type_lit = var.arg_type_literal
+                    .ok_or_else(|| TypecheckingErrorMessage {
+                        error: TypecheckingError::MissingTypeAnnotation,
+                        loc: var.loc.clone(),
+                    })?;
+
+                type_lit.typ.validate_generics(&generics, &var.loc)?;
+                let typ = type_lit.typ.get_type();
+                
+                let expected = ast::Type::List(Box::new(ast::Type::Unknown));
+                if !typ.subtypes(&expected) {
+                    return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::NotSubtype(typ.clone(), expected),
+                        loc: var.loc.clone()
+                    })
+                }
+
+                Some(ast::Argument {
+                    name: var.name,
+                    arg_type_literal: Some(type_lit),
+                    loc: var.loc,
+                    typ: typ
+                })
             },
             _ => None
         };
@@ -147,19 +170,19 @@ impl ast::FunctionPrototype {
         let keyword_arguments: Vec<ast::KeywordArgument> = self.keyword_arguments
             .into_iter()
             .map(|arg| {
-                let final_type = if let Some(lit) = &arg.arg_type_literal {
-                    lit.typ.validate_generics(&generics, &arg.loc)?;
-                    let ann = lit.typ.get_type();
-                    if !arg.expr.expr.clone().check(&ann)? {
-                        return Err(TypecheckingErrorMessage {
-                            error: TypecheckingError::NotExpectedType(arg.expr.expr.clone(), ann),
-                            loc: arg.loc.clone(),
-                        });
-                    }
-                    ann
-                } else {
-                    arg.expr.expr.infer()
-?
+                let final_type = match &arg.arg_type_literal {
+                    Some(lit) => {
+                        lit.typ.validate_generics(&generics, &arg.loc)?;
+                        let ann = lit.typ.get_type();
+                        if !arg.expr.expr.clone().check(&ann)? {
+                            return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::NotExpectedType(arg.expr.expr.clone(), ann),
+                                loc: arg.loc.clone(),
+                            });
+                        }
+                        ann
+                    },
+                    _ => arg.expr.expr.infer()?
                         .ok_or_else(|| TypecheckingErrorMessage {
                             error: TypecheckingError::MissingTypeAnnotation,
                             loc: arg.loc.clone(),
@@ -175,10 +198,65 @@ impl ast::FunctionPrototype {
                 })
             })
             .collect::<Result<_, _>>()?;
-        
+
+        let keyword_variadic_argument: Option<ast::Argument> = match self.keyword_variadic_argument {
+            Some(var) => {
+                let type_lit = var.arg_type_literal
+                    .ok_or_else(|| TypecheckingErrorMessage {
+                        error: TypecheckingError::MissingTypeAnnotation,
+                        loc: var.loc.clone(),
+                    })?;
+
+                type_lit.typ.validate_generics(&generics, &var.loc)?;
+                let typ = type_lit.typ.get_type();
+                
+                let expected = ast::Type::Dict{keys: Box::new(ast::Type::Str), values: Box::new(ast::Type::Unknown)};
+                if !typ.subtypes(&expected) {
+                    return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::NotSubtype(typ.clone(), expected),
+                        loc: var.loc.clone()
+                    })
+                }
+
+                Some(ast::Argument {
+                    name: var.name,
+                    arg_type_literal: Some(type_lit),
+                    loc: var.loc,
+                    typ: typ
+                })
+            },
+            _ => None
+        };
+
+        let return_typ_literal = self.return_type_literal
+            .ok_or_else(|| TypecheckingErrorMessage {
+                error: TypecheckingError::MissingReturnTypeAnnotation,
+                loc: loc.clone(),
+            })?;
+
+        return_typ_literal.typ.validate_generics(&generics, &return_typ_literal.loc)?;
+        let return_typ = return_typ_literal.typ.get_type();
+
+        let typ = ast::Type::Callable { 
+            generics, 
+            positional_arguments: positional_arguments.iter().map(|arg| arg.typ.clone()).collect(),
+            variadic_argument: variadic_argument.clone().map(|arg| Box::new(arg.typ)),
+            keyword_arguments: keyword_arguments.iter().map(|arg| ast::KeywordArgumentType {name: arg.name.clone(), arg_type: arg.typ.clone()}).collect(),
+            keyword_variadic_argument: keyword_variadic_argument.clone().map(|arg| Box::new(arg.typ)),
+            return_type: Box::new(return_typ.clone()) 
+        };
 
 
-        todo!()
+        Ok((FunctionPrototype {
+            generics: self.generics,
+            positional_arguments,
+            variadic_argument,
+            keyword_arguments,
+            keyword_variadic_argument,
+            return_type_literal: Some(return_typ_literal),
+            return_typ,
+            typ: typ.clone()
+        }, typ))
     }
 }
 

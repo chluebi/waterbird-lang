@@ -7,7 +7,7 @@ pub type Loc = Range<usize>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeywordArgumentType {
     pub name: String,
-    pub arg_type: Box<Type>
+    pub arg_type: Type
 }
 
 impl fmt::Display for KeywordArgumentType {
