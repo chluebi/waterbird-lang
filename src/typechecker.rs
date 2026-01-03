@@ -14,7 +14,8 @@ pub enum TypecheckingError {
     NeedsToBeVariable(ast::Expr),
     Unreachable(),
     VariableNotFound(String),
-    ArgumentsDontMatchFunction(ast::Type)
+    ArgumentsDontMatchFunction(ast::Type),
+    WrongReturnType()
 }
 
 pub struct TypecheckingErrorMessage {
@@ -504,9 +505,34 @@ impl ast::Function {
     }
 
     pub fn typecheck(self, env: &ProgramEnv) -> Result<Self, TypecheckingErrorMessage> {
-        let function_typ = self.contract.typ;
+        let contract = self.contract.typecheck(&self.loc)?;
 
-        todo!()
+        let return_typ = match contract.typ {
+            ast::Type::Callable {ref return_type, .. } => {
+                return_type
+            }
+            _ => panic!()
+        };
+
+        let mut env = FunctionEnv {program_env: env.clone(), return_type: *return_typ.clone(), variable_types: Vec::new()};
+
+        let body = self.body.typecheck(&mut env)?;
+
+        if !(body.typ == ast::Type::Impossible || body.typ == **return_typ) {
+            return Err(TypecheckingErrorMessage {
+                error: TypecheckingError::WrongReturnType(),
+                loc: contract.return_type_literal.unwrap().loc // contract typecheck ensures this unwrap is safe
+            })
+        }
+
+        return Ok(
+            ast::Function {
+                name: self.name,
+                contract: contract,
+                body: Box::new(body),
+                loc: self.loc
+            }
+        )
     }
 
 }
