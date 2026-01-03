@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{ast::{self, FunctionPrototype, GenericLiteral, Type}, interpreter::InterpreterErrorMessage};
+use crate::ast;
 
 pub enum TypecheckingError {
     MissingTypeAnnotation,
@@ -10,7 +10,7 @@ pub enum TypecheckingError {
     NotSubtype(ast::Type, ast::Type),
     NotAValidLocation(ast::Expr),
     NotTuple(ast::Expr),
-    UnpackCountMismatch(usize, Vec<ast::LocExpr>, usize, Vec<Type>),
+    UnpackCountMismatch(usize, Vec<ast::LocExpr>, usize, Vec<ast::Type>),
     NeedsToBeVariable(ast::Expr)
 }
 
@@ -48,6 +48,22 @@ impl ast::Type {
             (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: _, values: _ }) => ast::Type::Dict { keys: Box::new(ast::Type::Unknown), values: Box::new(ast::Type::Unknown) },
             (ast::Type::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type }, _) => todo!(),
             _ => ast::Type::Unknown
+        }
+    }
+
+    pub fn is_known(&self) -> bool {
+        match self {
+            ast::Type::Unknown => false,
+            ast::Type::Impossible 
+            | ast::Type::Unit
+            | ast::Type::Int
+            | ast::Type::Bool
+            | ast::Type::Str => true,
+            ast::Type::Generic(_) => todo!(),
+            ast::Type::Tuple(elements) => elements.iter().all(Self::is_known),
+            ast::Type::List(t) => t.is_known(),
+            ast::Type::Dict { keys, values } => keys.is_known() && values.is_known(),
+            ast::Type::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => todo!(),
         }
     }
 }
@@ -93,6 +109,12 @@ impl ast::TypeLiteral {
 #[derive(Clone)]
 struct ProgramEnv {
     functions: HashMap<String, ast::Type>
+}
+
+impl ProgramEnv {
+    pub fn new() -> Self {
+        ProgramEnv { functions: HashMap::new() }
+    }
 }
 
 
@@ -193,7 +215,7 @@ impl ast::FunctionPrototype {
         let keyword_arguments: Vec<ast::KeywordArgument> = self.keyword_arguments
             .into_iter()
             .map(|arg| {
-                let final_type = match &arg.arg_type_literal {
+                match &arg.arg_type_literal {
                     Some(lit) => {
                         lit.typ.validate_generics(&generics, &arg.loc)?;
                         let ann = lit.typ.get_type();
@@ -203,22 +225,34 @@ impl ast::FunctionPrototype {
                                 loc: arg.loc.clone(),
                             });
                         }
-                        ann
+                        
+                        Ok(ast::KeywordArgument {
+                            name: arg.name,
+                            expr: arg.expr,
+                            arg_type_literal: arg.arg_type_literal,
+                            loc: arg.loc,
+                            typ: ann,
+                        })
                     },
-                    _ => arg.expr.infer()?
-                        .ok_or_else(|| TypecheckingErrorMessage {
-                            error: TypecheckingError::MissingTypeAnnotation,
-                            loc: arg.loc.clone(),
-                        })?
-                };
-
-                Ok(ast::KeywordArgument {
-                    name: arg.name,
-                    expr: arg.expr,
-                    arg_type_literal: arg.arg_type_literal,
-                    loc: arg.loc,
-                    typ: final_type,
-                })
+                    _ => {
+                        let arg_expr = arg.expr.typecheck(&FunctionEnv::new())?;
+                        let arg_expr_typ = arg_expr.typ.clone();
+                        if let ast::Type::Unknown = arg_expr_typ {
+                            return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::MissingTypeAnnotation,
+                                loc: arg.loc.clone(),
+                            })
+                        } else {
+                                Ok(ast::KeywordArgument {
+                                name: arg.name,
+                                expr: arg_expr,
+                                arg_type_literal: arg.arg_type_literal,
+                                loc: arg.loc,
+                                typ: arg_expr_typ,
+                            })
+                        }
+                    }
+                }
             })
             .collect::<Result<_, _>>()?;
 
@@ -270,7 +304,7 @@ impl ast::FunctionPrototype {
         };
 
 
-        Ok(FunctionPrototype {
+        Ok(ast::FunctionPrototype {
             generics: self.generics,
             positional_arguments,
             variadic_argument,
@@ -312,6 +346,10 @@ enum InsertVariableResult {
 }
 
 impl FunctionEnv {
+
+    pub fn new() -> Self {
+        FunctionEnv { program_env: ProgramEnv::new(), return_type: ast::Type::Impossible, variable_types: vec![HashMap::new()] }
+    }
 
     pub fn insert_variable_type(&mut self, var: &String, typ: &ast::Type, loc: &ast::Loc) -> Result<InsertVariableResult, TypecheckingErrorMessage> {
         for mapping in self.variable_types.iter() {
@@ -551,12 +589,45 @@ impl ast::LocStmt {
                 let if_body = if_body.typecheck(env)?;
                 let else_body = else_body.typecheck(env)?;
 
-                todo!()
+                // for now we just join the return types
+                let join = if_body.typ.join(&else_body.typ);
+
+                return Ok(ast::LocStmt {
+                    stmt: ast::Stmt::IfElse { cond, if_body: Box::new(if_body), else_body: Box::new(else_body) },
+                    loc: self.loc,
+                    typ: join
+                })
             },
-            ast::Stmt::While { cond, body } => todo!(),
+            ast::Stmt::While { cond, body } => {
+                let cond = cond.typecheck(env)?;
+
+                if !cond.typ.subtypes(&ast::Type::Bool) {
+                    return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::NotExpectedType(cond.expr, ast::Type::Bool),
+                        loc: cond.loc
+                    })
+                }
+
+                let body = body.typecheck(env)?;
+                let typ= if let ast::Type::Impossible = body.typ {ast::Type::Impossible} else {ast::Type::Unit};
+
+                return Ok(ast::LocStmt {
+                    stmt: ast::Stmt::While { cond: cond, body: Box::new(body) },
+                    loc: self.loc,
+                    typ: typ
+                })
+            },
             ast::Stmt::Block { statements } => todo!(),
             ast::Stmt::SoftBlock { statements } => todo!(),
-            ast::Stmt::Expression { expr } => todo!(),
+            ast::Stmt::Expression { expr } => {
+                let expr = expr.typecheck(env)?;
+                let expr_typ = expr.typ.clone();
+                return Ok(ast::LocStmt {
+                    stmt: ast::Stmt::Expression { expr: expr },
+                    loc: self.loc,
+                    typ: expr_typ
+                })
+            },
             ast::Stmt::Break => todo!(),
             ast::Stmt::Continue => todo!(),
         }
@@ -574,7 +645,4 @@ impl ast::LocExpr {
         todo!()
     }
 
-    pub fn infer(&self) -> Result<Option<ast::Type>, TypecheckingErrorMessage> {
-        todo!()
-    }
 }
