@@ -290,7 +290,6 @@ pub enum Expr {
         indexer_border: Option<Box<LocExpr>>,
         indexer_step: Option<Box<LocExpr>>,
     },
-    FunctionPtr(String),
     Lambda {
        arguments: Vec<LambdaArgument>,
        expr: Box<LocExpr>
@@ -586,7 +585,6 @@ impl Expr {
                     }
                 })
             },
-            Expr::FunctionPtr(s) => Ok(ast::Expr::FunctionPtr(s)),
             Expr::Lambda { arguments, expr } => {
                 let mut new_args = vec![];
                 let mut statements = vec![];
