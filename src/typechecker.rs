@@ -29,11 +29,25 @@ impl ast::Type {
         match (self, other) {
             (_, ast::Type::Unknown) => true,
             (ast::Type::Unknown, _) => false,
+            (ast::Type::Impossible, _) => true,
+            (_, ast::Type::Impossible) => false,
             (ast::Type::Tuple(a), ast::Type::Tuple(b)) => a.iter().zip(b).all(|(a, b)| a.subtypes(b)),
-            (ast::Type::List(a), ast::Type::List(b)) => a.subtypes(b),
-            (ast::Type::Dict { keys: keys_a, values: values_a }, ast::Type::Dict { keys: keys_b, values: values_b }) => keys_a.subtypes(keys_b) && values_a.subtypes(values_b),
-                (ast::Type::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type }, _) => todo!(),
+            (ast::Type::List(_), ast::Type::List(_)) => false, // evil variance
+            (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: keys_b, values: values_b }) => false, // evil variance
+            (ast::Type::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type }, _) => todo!(),
             _ => false
+        }
+    }
+
+    pub fn join(&self, other: &Self) -> Self {
+        match (self, other) {
+            (_, ast::Type::Unknown) | (ast::Type::Unknown, _) => ast::Type::Unknown,
+            (ast::Type::Impossible, x) | (x, ast::Type::Impossible) => x.clone(),
+            (ast::Type::Tuple(a), ast::Type::Tuple(b)) => ast::Type::Tuple(a.iter().zip(b).map(|(a, b)| a.join(b)).collect()),
+            (ast::Type::List(_), ast::Type::List(_)) => ast::Type::List(Box::new(ast::Type::Unknown)), // evil variance
+            (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: _, values: _ }) => ast::Type::Dict { keys: Box::new(ast::Type::Unknown), values: Box::new(ast::Type::Unknown) },
+            (ast::Type::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type }, _) => todo!(),
+            _ => ast::Type::Unknown
         }
     }
 }
@@ -524,7 +538,21 @@ impl ast::LocStmt {
                     typ: ast::Type::Impossible
                 })
             },
-            ast::Stmt::IfElse { cond, if_body, else_body } => todo!(),
+            ast::Stmt::IfElse { cond, if_body, else_body } => {
+                let cond = cond.typecheck(env)?;
+
+                if !cond.typ.subtypes(&ast::Type::Bool) {
+                    return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::NotExpectedType(cond.expr, ast::Type::Bool),
+                        loc: cond.loc
+                    })
+                }
+
+                let if_body = if_body.typecheck(env)?;
+                let else_body = else_body.typecheck(env)?;
+
+                todo!()
+            },
             ast::Stmt::While { cond, body } => todo!(),
             ast::Stmt::Block { statements } => todo!(),
             ast::Stmt::SoftBlock { statements } => todo!(),
