@@ -12,7 +12,8 @@ pub enum TypecheckingError {
     NotTuple(ast::Expr),
     UnpackCountMismatch(usize, Vec<ast::LocExpr>, usize, Vec<ast::Type>),
     NeedsToBeVariable(ast::Expr),
-    NeedsToBeVoid(ast::Stmt)
+    NeedsToBeVoid(ast::Stmt),
+    Unreachable()
 }
 
 pub struct TypecheckingErrorMessage {
@@ -349,7 +350,7 @@ enum InsertVariableResult {
 impl FunctionEnv {
 
     pub fn new() -> Self {
-        FunctionEnv { program_env: ProgramEnv::new(), return_type: ast::Type::Impossible, variable_types: vec![HashMap::new()] }
+        FunctionEnv { program_env: ProgramEnv::new(), return_type: ast::Type::Impossible, variable_types: vec![] }
     }
 
     pub fn insert_variable_type(&mut self, var: &String, typ: &ast::Type, loc: &ast::Loc) -> Result<InsertVariableResult, TypecheckingErrorMessage> {
@@ -378,6 +379,10 @@ impl FunctionEnv {
             }
         }
         return None;
+    }
+
+    pub fn is_top_level_block(&self) -> bool {
+        self.variable_types.len() == 1
     }
 
 }
@@ -571,7 +576,7 @@ impl ast::LocStmt {
                     })
                 }
 
-                return Ok(ast::LocStmt {
+                Ok(ast::LocStmt {
                     stmt: ast::Stmt::Return { expr: expr },
                     loc: self.loc,
                     typ: ast::Type::Impossible
@@ -593,7 +598,7 @@ impl ast::LocStmt {
                 // for now we just join the return types
                 let join = if_body.typ.join(&else_body.typ);
 
-                return Ok(ast::LocStmt {
+                Ok(ast::LocStmt {
                     stmt: ast::Stmt::IfElse { cond, if_body: Box::new(if_body), else_body: Box::new(else_body) },
                     loc: self.loc,
                     typ: join
@@ -618,14 +623,59 @@ impl ast::LocStmt {
                     })
                 }
 
-                return Ok(ast::LocStmt {
+                Ok(ast::LocStmt {
                     stmt: ast::Stmt::While { cond: cond, body: Box::new(body) },
                     loc: self.loc,
                     typ: ast::Type::Unit
                 })
             },
-            ast::Stmt::Block { statements } => todo!(),
-            ast::Stmt::SoftBlock { statements } => todo!(),
+            ast::Stmt::Block { mut statements } | ast::Stmt::SoftBlock { mut statements } => {
+                let mut env = env.clone();
+
+                if let Some(last) = statements.pop() {
+                    let mut statements_new: Vec<ast::LocStmt> = vec![];
+
+                    let mut iter = statements.into_iter().peekable();
+
+                    while let Some(stmt) = iter.next() {
+
+                        let stmt: ast::LocStmt = stmt;
+                        let stmt = stmt.typecheck(&mut env)?;
+                        
+                        if let ast::Type::Impossible = stmt.typ {
+                            let next_stmt = match iter.peek() {
+                                Some(n) => n,
+                                _ => &last
+                            };
+                            return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::Unreachable(),
+                                loc: next_stmt.loc.clone()
+                            })
+                        }
+
+                        statements_new.push(stmt);
+                    }
+
+                    let last = last.typecheck(&mut env)?;
+                    let last_typ = last.typ.clone();
+
+                    statements_new.push(last);
+
+                    Ok(ast::LocStmt {
+                        stmt: ast::Stmt::Block { 
+                            statements: statements_new
+                        },
+                        loc: self.loc,
+                        typ: last_typ
+                    })
+                } else {
+                    Ok(ast::LocStmt {
+                        stmt: ast::Stmt::Block {statements: vec![]},
+                        loc: self.loc,
+                        typ: ast::Type::Unit
+                    })
+                }
+            },
             ast::Stmt::Expression { expr } => {
                 let expr = expr.typecheck(env)?;
                 let expr_typ = expr.typ.clone();
