@@ -12,7 +12,8 @@ pub enum TypecheckingError {
     NotTuple(ast::Expr),
     UnpackCountMismatch(usize, Vec<ast::LocExpr>, usize, Vec<ast::Type>),
     NeedsToBeVariable(ast::Expr),
-    Unreachable()
+    Unreachable(),
+    VariableNotFound(String)
 }
 
 pub struct TypecheckingErrorMessage {
@@ -372,7 +373,7 @@ impl FunctionEnv {
         return Ok(InsertVariableResult::DoesNotExist);
     }
 
-    pub fn get_variable_type(&mut self, var: &String) -> Option<ast::Type> {
+    pub fn get_variable_type(&self, var: &String) -> Option<ast::Type> {
         for mapping in self.variable_types.iter() {
             if let Some(existing_typ) = mapping.get(var) {
                 return Some(existing_typ.clone());
@@ -740,10 +741,68 @@ impl ast::LocStmt {
 }
 
 
+
+impl ast::BinOp {
+
+    pub fn signature(&self) -> ast::Type {
+        match self {
+            ast::BinOp::Eq => todo!(),
+            ast::BinOp::Neq => todo!(),
+            ast::BinOp::Leq => todo!(),
+            ast::BinOp::Geq => todo!(),
+            ast::BinOp::Lt => todo!(),
+            ast::BinOp::Gt => todo!(),
+            ast::BinOp::Add => todo!(),
+            ast::BinOp::Sub => todo!(),
+            ast::BinOp::Mul => todo!(),
+            ast::BinOp::Div => todo!(),
+            ast::BinOp::Mod => todo!(),
+            ast::BinOp::ShiftLeft => todo!(),
+            ast::BinOp::ShiftRightArith => todo!(),
+            ast::BinOp::And => todo!(),
+            ast::BinOp::Or => todo!(),
+            ast::BinOp::In => todo!(),
+        }
+    }
+
+}
+
+
 impl ast::LocExpr {
 
-    pub fn typecheck(self, env: &FunctionEnv) -> Result<Self, TypecheckingErrorMessage> {
-        todo!()
+    pub fn typecheck(self, env: &mut FunctionEnv) -> Result<Self, TypecheckingErrorMessage> {
+        
+        match self.expr {
+            ast::Expr::Variable(x) => {
+                match env.get_variable_type(&x) {
+                    Some(typ) => Ok(ast::LocExpr {expr: ast::Expr::Variable(x), loc: self.loc, typ}),
+                    _ => return Err(TypecheckingErrorMessage {error: TypecheckingError::VariableNotFound(x.clone()), loc: self.loc})
+                }
+            },
+            ast::Expr::DotAccess(_, _) => todo!(),
+            ast::Expr::Int(x) => Ok(ast::LocExpr {expr: ast::Expr::Int(x), loc: self.loc, typ: ast::Type::Int}),
+            ast::Expr::Bool(b) => Ok(ast::LocExpr {expr: ast::Expr::Bool(b), loc: self.loc, typ: ast::Type::Bool}),
+            ast::Expr::Str(s) => Ok(ast::LocExpr {expr: ast::Expr::Str(s), loc: self.loc, typ: ast::Type::Str}),
+            ast::Expr::Tuple(elements) => {
+                let elements: Vec<_> = elements.into_iter().map(|x| Self::typecheck(x, env)).collect::<Result<_,_>>()?;
+                let element_types = elements.iter().map(|x| x.typ.clone()).collect();
+                Ok(ast::LocExpr {expr: ast::Expr::Tuple(elements), loc: self.loc, typ: ast::Type::Tuple(element_types)})
+            },
+            ast::Expr::List(elements) => {
+                todo!("How do I deal with empty lists...")
+            },
+            ast::Expr::Dictionary(elements) => {
+                todo!("How do I deal with empty lists...")
+            },
+            ast::Expr::BinOp { op, left, right } => todo!(),
+            ast::Expr::UnOp { op, expr } => todo!(),
+            ast::Expr::FunctionCall { function, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument } => todo!(),
+            ast::Expr::Indexing { indexed, indexer } => todo!(),
+            ast::Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => todo!(),
+            ast::Expr::FunctionPtr(_) => todo!(),
+            ast::Expr::Lambda { arguments, expr } => todo!(),
+            ast::Expr::Block { statements } => todo!(),
+        }
     }
 
 }
