@@ -13,7 +13,8 @@ pub enum TypecheckingError {
     UnpackCountMismatch(usize, Vec<ast::LocExpr>, usize, Vec<ast::Type>),
     NeedsToBeVariable(ast::Expr),
     Unreachable(),
-    VariableNotFound(String)
+    VariableNotFound(String),
+    ArgumentsDontMatchFunction(ast::Type)
 }
 
 pub struct TypecheckingErrorMessage {
@@ -210,6 +211,37 @@ impl ast::Type {
                 && keyword_variadic_argument.as_ref().map_or(true, |t| t.is_known())
                 && return_type.is_known()
             }
+        }
+    }
+
+    pub fn validate_call(&self,
+        caller_positional_arguments: &Vec<ast::Type>,
+        caller_variadic_argument: &Option<ast::Type>,
+        caller_keyword_arguments: &Vec<ast::KeywordArgumentType>,
+        caller_keyword_variadic_argument: &Option<ast::Type>
+    ) -> Option<ast::Type> {
+        let return_type = match self {
+            ast::Type::Callable { return_type, .. } => *return_type.clone(),
+            _ => return None
+        };
+
+        if let ast::Type::Generic(_) = return_type {
+            todo!()
+        }
+
+        let caller_expected_type = ast::Type::Callable { 
+            generics: vec![],
+            positional_arguments: caller_positional_arguments.clone(),
+            variadic_argument: caller_variadic_argument.clone().map(Box::new),
+            keyword_arguments: caller_keyword_arguments.clone(),
+            keyword_variadic_argument: caller_keyword_variadic_argument.clone().map(Box::new),
+            return_type: Box::new(return_type.clone()) // this will just automatically succeed in the covariance check
+        };
+
+        if caller_expected_type.subtypes(self) {
+            Some(return_type)
+        } else {
+            None
         }
     }
 }
@@ -911,6 +943,17 @@ impl ast::BinOp {
 
 }
 
+impl ast::UnOp {
+
+    pub fn signature(&self) -> ast::Type {
+        match self {
+            ast::UnOp::Neg => todo!(),
+            ast::UnOp::Not => todo!(),
+        }
+    }
+
+}
+
 
 impl ast::LocExpr {
 
@@ -918,9 +961,12 @@ impl ast::LocExpr {
         
         match self.expr {
             ast::Expr::Variable(x) => {
-                match env.get_variable_type(&x) {
-                    Some(typ) => Ok(ast::LocExpr {expr: ast::Expr::Variable(x), loc: self.loc, typ}),
-                    _ => return Err(TypecheckingErrorMessage {error: TypecheckingError::VariableNotFound(x.clone()), loc: self.loc})
+                if let Some(typ) = env.get_variable_type(&x) {
+                    Ok(ast::LocExpr {expr: ast::Expr::Variable(x), loc: self.loc, typ})
+                } else if let Some(typ) = env.program_env.functions.get(&x) {
+                    Ok(ast::LocExpr {expr: ast::Expr::Variable(x), loc: self.loc, typ: typ.clone()})
+                } else {
+                    Err(TypecheckingErrorMessage {error: TypecheckingError::VariableNotFound(x.clone()), loc: self.loc})
                 }
             },
             ast::Expr::DotAccess(_, _) => todo!(),
@@ -938,9 +984,91 @@ impl ast::LocExpr {
             ast::Expr::Dictionary(elements) => {
                 todo!("How do I deal with empty lists...")
             },
-            ast::Expr::BinOp { op, left, right } => todo!(),
-            ast::Expr::UnOp { op, expr } => todo!(),
-            ast::Expr::FunctionCall { function, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument } => todo!(),
+            ast::Expr::BinOp { op, left, right } => {
+                let signature = op.signature();
+                let left = left.typecheck(env)?;
+                let right = right.typecheck(env)?;
+
+                match signature.validate_call(&vec![left.typ.clone(), right.typ.clone()], &None, &vec![], &None) {
+                    Some(return_type) => {
+                        Ok(ast::LocExpr {
+                            expr: ast::Expr::BinOp { op, left: Box::new(left), right: Box::new(right) },
+                            loc: self.loc,
+                            typ: return_type
+                        })
+                    }
+                    _ => return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::ArgumentsDontMatchFunction(signature.clone()),
+                        loc: self.loc.clone()
+                    })
+                }
+            },
+            ast::Expr::UnOp { op, expr } => {
+                let signature = op.signature();
+                let expr = expr.typecheck(env)?;
+
+                match signature.validate_call(&vec![expr.typ.clone()], &None, &vec![], &None) {
+                    Some(return_type) => {
+                        Ok(ast::LocExpr {
+                            expr: ast::Expr::UnOp { op, expr: Box::new(expr) },
+                            loc: self.loc,
+                            typ: return_type
+                        })
+                    }
+                    _ => return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::ArgumentsDontMatchFunction(signature.clone()),
+                        loc: self.loc.clone()
+                    })
+                }
+            },
+            ast::Expr::FunctionCall { function, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument } => {
+                let function = function.typecheck(env)?;
+
+                let positional_arguments: Vec<ast::CallArgument> = positional_arguments.into_iter().map(|x| {
+                    let expr = Self::typecheck(*x.expr, env)?;
+                    Ok(ast::CallArgument {expr: Box::new(expr), loc: x.loc})
+                }).collect::<Result<_, _>>()?;
+
+                let variadic_argument = variadic_argument.map(|x| {
+                    let expr = Self::typecheck(*x.expr, env)?;
+                    Ok(ast::CallArgument {expr: Box::new(expr), loc: x.loc})
+                }).transpose()?;
+
+                let keyword_arguments: Vec<ast::CallKeywordArgument> = keyword_arguments.into_iter().map(|x| {
+                    let expr = Self::typecheck(*x.expr, env)?;
+                    Ok(ast::CallKeywordArgument {name: x.name, expr: Box::new(expr), loc: x.loc})
+                }).collect::<Result<_, _>>()?;
+
+                let keyword_variadic_argument = keyword_variadic_argument.map(|x| {
+                    let expr = Self::typecheck(*x.expr, env)?;
+                    Ok(ast::CallArgument {expr: Box::new(expr), loc: x.loc})
+                }).transpose()?;
+
+                match function.typ.validate_call(
+                    &positional_arguments.iter().map(|x| x.expr.typ.clone()).collect(),
+                    &variadic_argument.clone().map(|x| x.expr.typ),
+                    &keyword_arguments.iter().map(|x| ast::KeywordArgumentType {name: x.name.clone(), arg_type: x.expr.typ.clone()}).collect(),
+                    &keyword_variadic_argument.clone().map(|x| x.expr.typ)
+                ) {
+                    Some(return_type) => {
+                        Ok(ast::LocExpr {
+                            expr: ast::Expr::FunctionCall { 
+                                function: Box::new(function),
+                                positional_arguments,
+                                variadic_argument,
+                                keyword_arguments,
+                                keyword_variadic_argument 
+                            },
+                            loc: self.loc,
+                            typ: return_type
+                        })
+                    }
+                    _ => return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::ArgumentsDontMatchFunction(function.typ.clone()),
+                        loc: self.loc.clone()
+                    })
+                }
+            },
             ast::Expr::Indexing { indexed, indexer } => todo!(),
             ast::Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => todo!(),
             ast::Expr::FunctionPtr(_) => todo!(),
