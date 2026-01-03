@@ -22,8 +22,8 @@ pub enum TypecheckingError {
 
 #[derive(Debug)]
 pub struct TypecheckingErrorMessage {
-    error: TypecheckingError,
-    loc: ast::Loc
+    pub error: TypecheckingError,
+    pub loc: ast::Loc
 }
 
 impl ast::Type {
