@@ -728,7 +728,6 @@ impl ast::LocExpr {
                 }
                 ret
             },
-            ast::Expr::FunctionPtr(_) => HashSet::new(),
             ast::Expr::Lambda { ref arguments, ref expr } => {
                 let mut ret = HashSet::new();
                 for v in ast::LocExpr::free_variables(expr) {
@@ -1376,8 +1375,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
                 },
                 _ => unreachable!()
             }
-        }
-        ast::Expr::FunctionPtr(ref s) => {Ok(Ok(Value::FunctionPtr(s.clone())))},
+        },
         ast::Expr::Lambda { ref arguments, ref expr } => {
             let mut captured = FastMap::default();
             let argument_names: Vec<&String> = arguments.iter().map(|x| &x.name).collect();

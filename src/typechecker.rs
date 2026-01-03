@@ -1137,7 +1137,6 @@ impl ast::LocExpr {
                 } 
             },
             ast::Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => todo!(),
-            ast::Expr::FunctionPtr(_) => todo!(),
             ast::Expr::Lambda { arguments, expr } => todo!(),
             ast::Expr::Block { statements } => todo!(),
         }
