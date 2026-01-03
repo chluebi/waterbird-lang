@@ -220,16 +220,17 @@ impl ast::FunctionPrototype {
                     Some(lit) => {
                         lit.typ.validate_generics(&generics, &arg.loc)?;
                         let ann = lit.typ.get_type();
-                        if !arg.expr.clone().check(&ann)? {
+                        let arg_expr = arg.expr.typecheck(&FunctionEnv::new())?;
+                        if !arg_expr.typ.subtypes(&ann) {
                             return Err(TypecheckingErrorMessage {
-                                error: TypecheckingError::NotExpectedType(arg.expr.expr.clone(), ann),
+                                error: TypecheckingError::NotExpectedType(arg_expr.expr.clone(), ann),
                                 loc: arg.loc.clone(),
                             });
                         }
                         
                         Ok(ast::KeywordArgument {
                             name: arg.name,
-                            expr: arg.expr,
+                            expr: arg_expr,
                             arg_type_literal: arg.arg_type_literal,
                             loc: arg.loc,
                             typ: ann,
@@ -742,10 +743,6 @@ impl ast::LocStmt {
 impl ast::LocExpr {
 
     pub fn typecheck(self, env: &FunctionEnv) -> Result<Self, TypecheckingErrorMessage> {
-        todo!()
-    }
-
-    pub fn check(self, expected_type: &ast::Type) -> Result<bool, TypecheckingErrorMessage> {
         todo!()
     }
 
