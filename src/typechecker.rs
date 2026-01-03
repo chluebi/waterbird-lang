@@ -629,7 +629,7 @@ impl ast::LocStmt {
                     typ: ast::Type::Unit
                 })
             },
-            ast::Stmt::Block { mut statements } | ast::Stmt::SoftBlock { mut statements } => {
+            ast::Stmt::Block { mut statements } => {
                 let mut env = env.clone();
 
                 if let Some(last) = statements.pop() {
@@ -676,17 +676,72 @@ impl ast::LocStmt {
                     })
                 }
             },
+            ast::Stmt::SoftBlock { mut statements } => {
+                let mut env = env.clone();
+
+                if let Some(last) = statements.pop() {
+                    let mut statements_new: Vec<ast::LocStmt> = vec![];
+
+                    let mut iter = statements.into_iter().peekable();
+
+                    while let Some(stmt) = iter.next() {
+
+                        let stmt: ast::LocStmt = stmt;
+                        let stmt = stmt.typecheck(&mut env)?;
+                        
+                        if let ast::Type::Impossible = stmt.typ {
+                            let next_stmt = match iter.peek() {
+                                Some(n) => n,
+                                _ => &last
+                            };
+                            return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::Unreachable(),
+                                loc: next_stmt.loc.clone()
+                            })
+                        }
+
+                        statements_new.push(stmt);
+                    }
+
+                    let last = last.typecheck(&mut env)?;
+                    let last_typ = last.typ.clone();
+
+                    statements_new.push(last);
+
+                    Ok(ast::LocStmt {
+                        stmt: ast::Stmt::SoftBlock { 
+                            statements: statements_new
+                        },
+                        loc: self.loc,
+                        typ: last_typ
+                    })
+                } else {
+                    Ok(ast::LocStmt {
+                        stmt: ast::Stmt::SoftBlock {statements: vec![]},
+                        loc: self.loc,
+                        typ: ast::Type::Unit
+                    })
+                }
+            },
             ast::Stmt::Expression { expr } => {
                 let expr = expr.typecheck(env)?;
                 let expr_typ = expr.typ.clone();
-                return Ok(ast::LocStmt {
+                Ok(ast::LocStmt {
                     stmt: ast::Stmt::Expression { expr: expr },
                     loc: self.loc,
                     typ: expr_typ
                 })
             },
-            ast::Stmt::Break => todo!(),
-            ast::Stmt::Continue => todo!(),
+            ast::Stmt::Break => Ok(ast::LocStmt {
+                stmt: ast::Stmt::Break,
+                loc: self.loc,
+                typ: ast::Type::Impossible
+            }),
+            ast::Stmt::Continue => Ok(ast::LocStmt {
+                stmt: ast::Stmt::Continue,
+                loc: self.loc,
+                typ: ast::Type::Impossible
+            }),
         }
     }
 }
