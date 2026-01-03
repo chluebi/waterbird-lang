@@ -512,7 +512,7 @@ impl ast::Function {
 }
 
 #[derive(Clone)]
-struct FunctionEnv {
+pub struct FunctionEnv {
     program_env: ProgramEnv,
     return_type: ast::Type,
     variable_types: Vec<HashMap<String, ast::Type>> // stack because we can enter blocks
@@ -558,8 +558,8 @@ impl FunctionEnv {
         return None;
     }
 
-    pub fn is_top_level_block(&self) -> bool {
-        self.variable_types.len() == 1
+    pub fn new_frame(&mut self) {
+        self.variable_types.insert(0, HashMap::new());
     }
 
 }
@@ -801,6 +801,7 @@ impl ast::LocStmt {
             },
             ast::Stmt::Block { mut statements } => {
                 let mut env = env.clone();
+                env.new_frame();
 
                 if let Some(last) = statements.pop() {
                     let mut statements_new: Vec<ast::LocStmt> = vec![];
@@ -848,6 +849,7 @@ impl ast::LocStmt {
             },
             ast::Stmt::SoftBlock { mut statements } => {
                 let mut env = env.clone();
+                env.new_frame();
 
                 if let Some(last) = statements.pop() {
                     let mut statements_new: Vec<ast::LocStmt> = vec![];
@@ -1136,9 +1138,142 @@ impl ast::LocExpr {
                     })
                 } 
             },
-            ast::Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => todo!(),
-            ast::Expr::Lambda { arguments, expr } => todo!(),
-            ast::Expr::Block { statements } => todo!(),
+            ast::Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => {
+                let indexed = indexed.typecheck(env)?;
+                
+                let mut check_int_arg = |arg: Option<Box<ast::LocExpr>>| -> Result<Option<Box<ast::LocExpr>>, TypecheckingErrorMessage> {
+                    match arg {
+                        Some(expr) => {
+                            let checked = expr.typecheck(env)?;
+                            if !checked.typ.subtypes(&ast::Type::Int) {
+                                return Err(TypecheckingErrorMessage {
+                                    error: TypecheckingError::NotExpectedType(checked.expr.clone(), ast::Type::Int),
+                                    loc: checked.loc
+                                });
+                            }
+                            Ok(Some(Box::new(checked)))
+                        },
+                        _ => Ok(None)
+                    }
+                };
+
+                let checked_start = check_int_arg(indexer_start)?;
+                let checked_border = check_int_arg(indexer_border)?;
+                let checked_step = check_int_arg(indexer_step)?;
+
+                let get_const = |arg: &Option<Box<ast::LocExpr>>| -> Option<i64> {
+                    if let Some(loc_expr) = arg {
+                        if let ast::Expr::Int(val) = loc_expr.expr {
+                            return Some(val);
+                        }
+                    }
+                    None
+                };
+
+                let result_type = match &indexed.typ {
+                    ast::Type::Str => ast::Type::Str,
+                    ast::Type::List(t) => ast::Type::List(t.clone()),
+                    ast::Type::Tuple(types) => {
+                        // only constant values allowed
+                        let start = get_const(&checked_start).unwrap_or(0);
+                        let border = get_const(&checked_border).unwrap_or(types.len() as i64);
+                        let step = get_const(&checked_step).unwrap_or(1);
+
+                        if step == 0 {
+                            return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::NotAValidLocation(indexed.expr.clone()),
+                                loc: self.loc.clone()
+                            });
+                        }
+
+                        let mut sliced_types = Vec::new();
+                        let len = types.len() as i64;
+                        
+                        let mut curr = if start < 0 { (len + start).max(0) } else { start };
+                        let end = if border < 0 { (len + border).max(0) } else { border.min(len) };
+
+                        if step > 0 {
+                            while curr < end && curr < len {
+                                sliced_types.push(types[curr as usize].clone());
+                                curr += step;
+                            }
+                        } else {
+                            return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::NotAValidLocation(indexed.expr.clone()),
+                                loc: self.loc.clone()
+                            });
+                        }
+
+                        ast::Type::Tuple(sliced_types)
+                    },
+                    _ => return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::NotExpectedType(indexed.expr.clone(), ast::Type::Str), 
+                        loc: indexed.loc.clone()
+                    })
+                };
+
+                Ok(ast::LocExpr {
+                    expr: ast::Expr::Slice { 
+                        indexed: Box::new(indexed), 
+                        indexer_start: checked_start, 
+                        indexer_border: checked_border, 
+                        indexer_step: checked_step 
+                    },
+                    loc: self.loc,
+                    typ: result_type
+                })
+            },
+
+            ast::Expr::Lambda { .. } => todo!("capturing logic"),
+
+            ast::Expr::Block { mut statements } => {
+                let mut env = env.clone();
+                env.new_frame();
+
+                if let Some(last) = statements.pop() {
+                    let mut statements_new: Vec<ast::LocStmt> = vec![];
+
+                    let mut iter = statements.into_iter().peekable();
+
+                    while let Some(stmt) = iter.next() {
+
+                        let stmt: ast::LocStmt = stmt;
+                        let stmt = stmt.typecheck(&mut env)?;
+                        
+                        if let ast::Type::Impossible = stmt.typ {
+                            let next_stmt = match iter.peek() {
+                                Some(n) => n,
+                                _ => &last
+                            };
+                            return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::Unreachable(),
+                                loc: next_stmt.loc.clone()
+                            })
+                        }
+
+                        statements_new.push(stmt);
+                    }
+
+                    let last = last.typecheck(&mut env)?;
+                    let last_typ = last.typ.clone();
+
+                    statements_new.push(last);
+
+                    Ok(ast::LocExpr {
+                        expr: ast::Expr::Block { 
+                            statements: statements_new
+                        },
+                        loc: self.loc,
+                        typ: last_typ
+                    })
+                } else {
+                    Ok(ast::LocExpr {
+                        expr: ast::Expr::Block {statements: vec![]},
+                        loc: self.loc,
+                        typ: ast::Type::Unit
+                    })
+                }
+            },
         }
     }
 
