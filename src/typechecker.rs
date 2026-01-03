@@ -1069,7 +1069,73 @@ impl ast::LocExpr {
                     })
                 }
             },
-            ast::Expr::Indexing { indexed, indexer } => todo!(),
+            ast::Expr::Indexing { indexed, indexer } => {
+                let indexed = indexed.typecheck(env)?;
+
+                if let ast::Type::Impossible = indexed.typ {
+                    return Ok(ast::LocExpr {
+                        expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: indexer },
+                        loc: self.loc, typ: ast::Type::Impossible
+                    });
+                }
+
+                match indexed.typ {
+                    ast::Type::Generic(s) => todo!("Deep sigh..."),
+                    ast::Type::List(ref element_type) => {
+                        let indexer = indexer.typecheck(env)?;
+
+                        if let ast::Type::Impossible = indexer.typ {
+                            return Ok(ast::LocExpr {
+                                expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
+                                loc: self.loc, typ: ast::Type::Impossible
+                            });
+                        }
+
+                        if !indexer.typ.subtypes(&ast::Type::Int) {
+                            return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::NotExpectedType(indexer.expr.clone(), ast::Type::Int),
+                                loc: indexer.loc
+                            })
+                        }
+
+                        let indexed_typ = indexed.typ.clone();
+                        
+
+                        Ok(ast::LocExpr {
+                            expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
+                            loc: self.loc, typ: indexed_typ
+                        })
+                    },
+                    ast::Type::Dict{ref keys, ref values} => {
+                        let indexer = indexer.typecheck(env)?;
+
+                        if let ast::Type::Impossible = indexer.typ {
+                            return Ok(ast::LocExpr {
+                                expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
+                                loc: self.loc, typ: ast::Type::Impossible
+                            });
+                        }
+
+                        if !indexer.typ.subtypes(&keys) {
+                            return Err(TypecheckingErrorMessage {
+                                error: TypecheckingError::NotExpectedType(indexer.expr.clone(), *keys.clone()),
+                                loc: indexer.loc
+                            })
+                        }
+
+                        let indexed_typ = indexed.typ.clone();
+
+                        Ok(ast::LocExpr {
+                            expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
+                            loc: self.loc, typ: indexed_typ
+                        })
+                    },
+                    _ => return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::NotAValidLocation(ast::Expr::Indexing { indexed: Box::new(indexed.clone()), indexer: indexer.clone() }),
+                        loc: self.loc
+                    })
+                } 
+            },
             ast::Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => todo!(),
             ast::Expr::FunctionPtr(_) => todo!(),
             ast::Expr::Lambda { arguments, expr } => todo!(),
