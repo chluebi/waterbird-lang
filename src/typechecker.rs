@@ -953,36 +953,73 @@ impl ast::BinOp {
 
     pub fn signature(&self) -> ast::Type {
         match self {
-            ast::BinOp::Eq => todo!(),
-            ast::BinOp::Neq => todo!(),
-            ast::BinOp::Leq => todo!(),
-            ast::BinOp::Geq => todo!(),
-            ast::BinOp::Lt => todo!(),
-            ast::BinOp::Gt => todo!(),
-            ast::BinOp::Add => todo!(),
-            ast::BinOp::Sub => todo!(),
-            ast::BinOp::Mul => todo!(),
-            ast::BinOp::Div => todo!(),
-            ast::BinOp::Mod => todo!(),
-            ast::BinOp::ShiftLeft => todo!(),
-            ast::BinOp::ShiftRightArith => todo!(),
-            ast::BinOp::And => todo!(),
-            ast::BinOp::Or => todo!(),
-            ast::BinOp::In => todo!(),
+            ast::BinOp::Add | 
+            ast::BinOp::Sub | 
+            ast::BinOp::Mul | 
+            ast::BinOp::Div | 
+            ast::BinOp::Mod | 
+            ast::BinOp::ShiftLeft | 
+            ast::BinOp::ShiftRightArith => ast::Type::Callable {
+                generics: vec![],
+                positional_arguments: vec![ast::Type::Int, ast::Type::Int],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: Box::new(ast::Type::Int),
+            },
+
+            ast::BinOp::Leq | 
+            ast::BinOp::Geq | 
+            ast::BinOp::Lt | 
+            ast::BinOp::Gt => ast::Type::Callable {
+                generics: vec![],
+                positional_arguments: vec![ast::Type::Int, ast::Type::Int],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: Box::new(ast::Type::Bool),
+            },
+
+            ast::BinOp::And | 
+            ast::BinOp::Or => ast::Type::Callable {
+                generics: vec![],
+                positional_arguments: vec![ast::Type::Bool, ast::Type::Bool],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: Box::new(ast::Type::Bool),
+            },
+
+            // Polymorphic
+            ast::BinOp::Eq => todo!("Polymorphic Eq"),
+            ast::BinOp::Neq => todo!("Polymorphic Neq"),
+            ast::BinOp::In => todo!("Polymorphic In"),
         }
     }
-
 }
 
 impl ast::UnOp {
 
     pub fn signature(&self) -> ast::Type {
         match self {
-            ast::UnOp::Neg => todo!(),
-            ast::UnOp::Not => todo!(),
+            ast::UnOp::Neg => ast::Type::Callable {
+                generics: vec![],
+                positional_arguments: vec![ast::Type::Int],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: Box::new(ast::Type::Int),
+            },
+            ast::UnOp::Not => ast::Type::Callable {
+                generics: vec![],
+                positional_arguments: vec![ast::Type::Bool],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: Box::new(ast::Type::Bool),
+            },
         }
     }
-
 }
 
 
