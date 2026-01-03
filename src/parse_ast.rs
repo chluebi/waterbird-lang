@@ -911,7 +911,8 @@ impl LocStmt {
     fn preprocess(ls: Self) -> Result<ast::LocStmt, PreprocessingErrorMessage> {
         Ok(ast::LocStmt {
             stmt: Stmt::preprocess(ls.stmt)?,
-            loc: ls.loc
+            loc: ls.loc,
+            typ: ast::Type::Unknown
         })
     }
 }

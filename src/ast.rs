@@ -18,9 +18,10 @@ impl fmt::Display for KeywordArgumentType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
-    Unknown,
+    Unknown, // Top
+    Impossible, // Bottom
+    Unit,
     Generic(String),
-    Void,
     Int,
     Bool,
     Str,
@@ -44,8 +45,9 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Type::Unknown => write!(f, "unknown"),
+            Type::Impossible => write!(f, "impossible"),
+            Type::Unit => write!(f, "()"),
             Type::Generic(s) => write!(f, "{}", s),
-            Type::Void => write!(f, "()"),
             Type::Int => write!(f, "Int"),
             Type::Bool => write!(f, "Bool"),
             Type::Str => write!(f, "String"),
@@ -518,7 +520,8 @@ impl fmt::Display for Stmt {
 #[derive(Debug, Clone)]
 pub struct LocStmt {
     pub stmt: Stmt,
-    pub loc: Loc 
+    pub loc: Loc,
+    pub typ: Type 
 }
 
 impl fmt::Display for LocStmt {
