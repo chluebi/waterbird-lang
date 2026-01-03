@@ -36,7 +36,111 @@ impl ast::Type {
             (ast::Type::Tuple(a), ast::Type::Tuple(b)) => a.iter().zip(b).all(|(a, b)| a.subtypes(b)),
             (ast::Type::List(_), ast::Type::List(_)) => false, // evil variance
             (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: keys_b, values: values_b }) => false, // evil variance
-            (ast::Type::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type }, _) => todo!(),
+            (ast::Type::Callable { 
+                generics: generics_a,
+                positional_arguments: positional_arguments_a,
+                variadic_argument: variadic_argument_a,
+                keyword_arguments: keyword_arguments_a,
+                keyword_variadic_argument: keyword_variadic_argument_a,
+                return_type: return_type_a 
+            }, 
+            ast::Type::Callable { 
+                generics: generics_b,
+                positional_arguments: positional_arguments_b,
+                variadic_argument: variadic_argument_b,
+                keyword_arguments: keyword_arguments_b,
+                keyword_variadic_argument: keyword_variadic_argument_b,
+                return_type: return_type_b
+            }) => {
+                
+                if generics_a != generics_b {
+                    todo!()
+                }
+
+                if !return_type_a.subtypes(return_type_b) {
+                    return false;
+                }
+
+                // all arguments that B accepts must be accepted by A
+                for (i, type_b) in positional_arguments_b.iter().enumerate() {
+                    let type_a = if i < positional_arguments_a.len() {
+                        // handled by normal a arguments
+                        &positional_arguments_a[i]
+                    } else if let Some(var_a) = variadic_argument_a {
+                        // handled by variadic a
+                        var_a
+                    } else {
+                        return false;
+                    };
+
+                    if !type_a.subtypes(type_b) {
+                        return false;
+                    }
+                }
+
+                // B has variadic
+                if let Some(var_b) = variadic_argument_b {
+                    // A has variadic as well, needs to be subtype
+                    if let Some(var_a) = variadic_argument_a {
+                        if !var_b.subtypes(var_a) { return false; }
+                    } else {
+                        // A cannot handle B variadic
+                        return false; 
+                    }
+                    
+                    // B variadic covers extra arguments of A
+                    if positional_arguments_a.len() > positional_arguments_b.len() {
+                        for type_a in &positional_arguments_a[positional_arguments_b.len()..] {
+                            if !var_b.subtypes(type_a) { return false; }
+                        }
+                    }
+                } else {
+                    // A cannot ask for more arguments than B asks for
+                    if positional_arguments_a.len() > positional_arguments_b.len() {
+                        return false;
+                    }
+                }
+
+                // A has to handle all keyword arguments that B accepts
+                for kw_b in keyword_arguments_b {
+                    let type_a = if let Some(kw_a) = keyword_arguments_a.iter().find(|k| k.name == kw_b.name) {
+                        &kw_a.arg_type
+                    } else if let Some(kv_a) = keyword_variadic_argument_a {
+                        kv_a // kwargs
+                    } else {
+                        return false;
+                    };
+
+                    if !kw_b.arg_type.subtypes(type_a) {
+                        return false;
+                    }
+                }
+
+                // B kwargs -> A kwargs
+                if let Some(kv_b) = keyword_variadic_argument_b {
+                    if let Some(kv_a) = keyword_variadic_argument_a {
+                         if !kv_b.subtypes(kv_a) { return false; }
+                    } else {
+                        return false;
+                    }
+
+                    // A extra args can be handled by B kwargs
+                    for kw_a in keyword_arguments_a {
+                        if !keyword_arguments_b.iter().any(|k| k.name == kw_a.name) {
+                            if !kv_b.subtypes(&kw_a.arg_type) { return false; }
+                        }
+                    }
+                } else {
+                    // no kwargs in B, A cannot ask for more keywords
+                    for kw_a in keyword_arguments_a {
+                        if !keyword_arguments_b.iter().any(|k| k.name == kw_a.name) {
+                            return false;
+                        }
+                    }
+                }
+
+                true
+            },
             _ => false
         }
     }
@@ -48,7 +152,41 @@ impl ast::Type {
             (ast::Type::Tuple(a), ast::Type::Tuple(b)) => ast::Type::Tuple(a.iter().zip(b).map(|(a, b)| a.join(b)).collect()),
             (ast::Type::List(_), ast::Type::List(_)) => ast::Type::List(Box::new(ast::Type::Unknown)), // evil variance
             (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: _, values: _ }) => ast::Type::Dict { keys: Box::new(ast::Type::Unknown), values: Box::new(ast::Type::Unknown) },
-            (ast::Type::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type }, _) => todo!(),
+            (ast::Type::Callable { 
+                generics: generics_a,
+                positional_arguments: positional_arguments_a,
+                variadic_argument: variadic_argument_a,
+                keyword_arguments: keyword_arguments_a,
+                keyword_variadic_argument: keyword_variadic_argument_a,
+                return_type: return_type_a 
+            }, 
+            ast::Type::Callable { 
+                generics: generics_b,
+                positional_arguments: positional_arguments_b,
+                variadic_argument: variadic_argument_b,
+                keyword_arguments: keyword_arguments_b,
+                keyword_variadic_argument: keyword_variadic_argument_b,
+                return_type: return_type_b 
+            }) => {
+
+                if generics_a != generics_b {
+                    todo!()
+                }
+
+                // okay so basically the problem here is the following
+                // we need to a find a function that both other functions subtype
+                if self.subtypes(other) {
+                    return other.clone();
+                }
+
+                if other.subtypes(self) {
+                    return self.clone();
+                }
+
+                // if they do not subtype each other, we need to account for contravariance of return arguments, which means meets etc.
+                // todo
+                return ast::Type::Unknown;
+            },
             _ => ast::Type::Unknown
         }
     }
@@ -65,7 +203,13 @@ impl ast::Type {
             ast::Type::Tuple(elements) => elements.iter().all(Self::is_known),
             ast::Type::List(t) => t.is_known(),
             ast::Type::Dict { keys, values } => keys.is_known() && values.is_known(),
-            ast::Type::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => todo!(),
+            ast::Type::Callable { generics: _, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => {
+                positional_arguments.iter().all(|t| t.is_known())
+                && variadic_argument.as_ref().map_or(true, |t| t.is_known())
+                && keyword_arguments.iter().all(|kw| kw.arg_type.is_known())
+                && keyword_variadic_argument.as_ref().map_or(true, |t| t.is_known())
+                && return_type.is_known()
+            }
         }
     }
 }
@@ -221,7 +365,7 @@ impl ast::FunctionPrototype {
                     Some(lit) => {
                         lit.typ.validate_generics(&generics, &arg.loc)?;
                         let ann = lit.typ.get_type();
-                        let arg_expr = arg.expr.typecheck(&FunctionEnv::new())?;
+                        let arg_expr = arg.expr.typecheck(&mut FunctionEnv::new())?;
                         if !arg_expr.typ.subtypes(&ann) {
                             return Err(TypecheckingErrorMessage {
                                 error: TypecheckingError::NotExpectedType(arg_expr.expr.clone(), ann),
@@ -238,7 +382,7 @@ impl ast::FunctionPrototype {
                         })
                     },
                     _ => {
-                        let arg_expr = arg.expr.typecheck(&FunctionEnv::new())?;
+                        let arg_expr = arg.expr.typecheck(&mut FunctionEnv::new())?;
                         let arg_expr_typ = arg_expr.typ.clone();
                         if let ast::Type::Unknown = arg_expr_typ {
                             return Err(TypecheckingErrorMessage {
