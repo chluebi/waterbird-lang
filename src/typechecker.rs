@@ -310,9 +310,9 @@ impl ast::Program {
 
         let mut function_type_mapping = HashMap::new();
 
-        let prototype_res: Result<Vec<(String, ast::Function)>, TypecheckingErrorMessage> = self.functions.into_iter().map(|(s,f)| {
+        let prototype_res: Result<Vec<(String, ast::Function, HashMap<String, ast::Type>)>, TypecheckingErrorMessage> = self.functions.into_iter().map(|(s,f)| {
             match f.contract.typecheck(&f.loc) {
-                Ok(p) => {function_type_mapping.insert(s.clone(), p.typ.clone()); Ok((s, ast::Function {name: f.name, contract: p, body: f.body, loc: f.loc}))},
+                Ok((p, mapping)) => {function_type_mapping.insert(s.clone(), p.typ.clone()); Ok((s, ast::Function {name: f.name, contract: p, body: f.body, loc: f.loc}, mapping))},
                 Err(e) => Err(e)
             }
         }).collect();
@@ -321,8 +321,8 @@ impl ast::Program {
             functions: function_type_mapping
         };
 
-        let res: Result<HashMap<String, ast::Function>, TypecheckingErrorMessage> = prototype_res?.into_iter().map(|(s,f)| {
-            match f.typecheck(&env) {
+        let res: Result<HashMap<String, ast::Function>, TypecheckingErrorMessage> = prototype_res?.into_iter().map(|(s,f,m)| {
+            match f.typecheck(&env,m) {
                 Ok(f) => Ok((s, f)),
                 Err(e) => Err(e)
             }
@@ -341,7 +341,7 @@ impl ast::FunctionPrototype {
         todo!()
     }
 
-    pub fn typecheck(self, loc: &ast::Loc) -> Result<Self, TypecheckingErrorMessage> {
+    pub fn typecheck(self, loc: &ast::Loc) -> Result<(Self, HashMap<String,ast::Type>), TypecheckingErrorMessage> {
         let generics: Vec<String> = self.generics.iter().map(|x| x.name.clone()).collect();
 
         let positional_arguments: Vec<ast::Argument> = self.positional_arguments
@@ -486,8 +486,22 @@ impl ast::FunctionPrototype {
             return_type: Box::new(return_typ.clone()) 
         };
 
+        let mut variable_types = HashMap::new();
+        for arg in positional_arguments.clone() {
+            variable_types.insert(arg.name, arg.typ);
+        }
+        if let Some(var_arg) = variadic_argument.clone() {
+            variable_types.insert(var_arg.name, var_arg.typ);
+        }
+        for karg in keyword_arguments.clone() {
+            variable_types.insert(karg.name, karg.typ);
+        }
+        if let Some(var_karg) = keyword_variadic_argument.clone() {
+            variable_types.insert(var_karg.name, var_karg.typ);
+        }
 
-        Ok(ast::FunctionPrototype {
+
+        Ok((ast::FunctionPrototype {
             generics: self.generics,
             positional_arguments,
             variadic_argument,
@@ -496,7 +510,7 @@ impl ast::FunctionPrototype {
             return_type_literal: Some(return_typ_literal),
             return_typ,
             typ: typ.clone()
-        })
+        }, variable_types))
     }
 }
 
@@ -507,8 +521,8 @@ impl ast::Function {
         todo!()
     }
 
-    pub fn typecheck(self, env: &ProgramEnv) -> Result<Self, TypecheckingErrorMessage> {
-        let contract = self.contract.typecheck(&self.loc)?;
+    pub fn typecheck(self, env: &ProgramEnv, initial_mapping: HashMap<String, ast::Type>) -> Result<Self, TypecheckingErrorMessage> {
+        let contract = self.contract;
 
         let return_typ = match contract.typ {
             ast::Type::Callable {ref return_type, .. } => {
@@ -517,7 +531,7 @@ impl ast::Function {
             _ => panic!()
         };
 
-        let mut env = FunctionEnv {program_env: env.clone(), return_type: *return_typ.clone(), variable_types: Vec::new()};
+        let mut env = FunctionEnv {program_env: env.clone(), return_type: *return_typ.clone(), variable_types: vec![initial_mapping]};
 
         let body = self.body.typecheck(&mut env)?;
 
