@@ -174,6 +174,7 @@ pub fn typecheck(path: String) -> () {
 
 
     match program.typecheck() {
-        _ => todo!()
+        Ok(program) => println!("{}", program),
+        Err(err) => println!("{:?}", err)
     };
 }
