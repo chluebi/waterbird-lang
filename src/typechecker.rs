@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::ast;
 
+#[derive(Debug)]
 pub enum TypecheckingError {
     MissingTypeAnnotation,
     MissingReturnTypeAnnotation,
@@ -18,6 +19,8 @@ pub enum TypecheckingError {
     WrongReturnType()
 }
 
+
+#[derive(Debug)]
 pub struct TypecheckingErrorMessage {
     error: TypecheckingError,
     loc: ast::Loc
