@@ -12,7 +12,6 @@ pub enum TypecheckingError {
     NotTuple(ast::Expr),
     UnpackCountMismatch(usize, Vec<ast::LocExpr>, usize, Vec<ast::Type>),
     NeedsToBeVariable(ast::Expr),
-    NeedsToBeVoid(ast::Stmt),
     Unreachable()
 }
 
@@ -615,13 +614,6 @@ impl ast::LocStmt {
                 }
 
                 let body = body.typecheck(env)?;
-                
-                if body.typ != ast::Type::Unit {
-                    return Err(TypecheckingErrorMessage {
-                        error: TypecheckingError::NeedsToBeVoid(body.stmt),
-                        loc: cond.loc
-                    })
-                }
 
                 Ok(ast::LocStmt {
                     stmt: ast::Stmt::While { cond: cond, body: Box::new(body) },
