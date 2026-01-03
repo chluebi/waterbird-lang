@@ -11,7 +11,8 @@ pub enum TypecheckingError {
     NotAValidLocation(ast::Expr),
     NotTuple(ast::Expr),
     UnpackCountMismatch(usize, Vec<ast::LocExpr>, usize, Vec<ast::Type>),
-    NeedsToBeVariable(ast::Expr)
+    NeedsToBeVariable(ast::Expr),
+    NeedsToBeVoid(ast::Stmt)
 }
 
 pub struct TypecheckingErrorMessage {
@@ -609,12 +610,18 @@ impl ast::LocStmt {
                 }
 
                 let body = body.typecheck(env)?;
-                let typ= if let ast::Type::Impossible = body.typ {ast::Type::Impossible} else {ast::Type::Unit};
+                
+                if body.typ != ast::Type::Unit {
+                    return Err(TypecheckingErrorMessage {
+                        error: TypecheckingError::NeedsToBeVoid(body.stmt),
+                        loc: cond.loc
+                    })
+                }
 
                 return Ok(ast::LocStmt {
                     stmt: ast::Stmt::While { cond: cond, body: Box::new(body) },
                     loc: self.loc,
-                    typ: typ
+                    typ: ast::Type::Unit
                 })
             },
             ast::Stmt::Block { statements } => todo!(),
