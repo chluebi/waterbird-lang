@@ -175,6 +175,14 @@ pub fn typecheck(path: String) -> () {
 
     match program.typecheck() {
         Ok(program) => println!("{}", program),
-        Err(err) => println!("{:?}", err)
+        Err(e) => {
+            match e.loc.clone() {
+                range => {
+                    let original_code_string = get_error_snippet(&program_text, range.start, range.end);
+                    println!("Program Failed: {:?}\n{}", e.error, original_code_string)
+                },
+                _ => println!("Program Failed {:?}:\n[Unknown Location]", e.error)
+            }
+        }
     };
 }
