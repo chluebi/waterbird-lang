@@ -27,6 +27,17 @@ pub struct TypecheckingErrorMessage {
 }
 
 impl ast::Type {
+
+    pub fn subtypes_constant_other(&self, other: &Self) -> bool {
+        if self.subtypes(other) {
+            return true;
+        }
+
+        match (self, other) {
+            (ast::Type::List(a), ast::Type::List(b)) => a.subtypes(b), // relax variance constraint
+            _ => false
+        }
+    }
     
     pub fn subtypes(&self, other: &Self) -> bool {
         if self == other {
@@ -377,7 +388,7 @@ impl ast::FunctionPrototype {
                 let typ = type_lit.typ.get_type();
                 
                 let expected = ast::Type::List(Box::new(ast::Type::Unknown));
-                if !typ.subtypes(&expected) {
+                if !typ.subtypes_constant_other(&expected) {
                     return Err(TypecheckingErrorMessage {
                         error: TypecheckingError::NotSubtype(typ.clone(), expected),
                         loc: var.loc.clone()
@@ -451,7 +462,7 @@ impl ast::FunctionPrototype {
                 let typ = type_lit.typ.get_type();
                 
                 let expected = ast::Type::Dict{keys: Box::new(ast::Type::Str), values: Box::new(ast::Type::Unknown)};
-                if !typ.subtypes(&expected) {
+                if !typ.subtypes_constant_other(&expected) {
                     return Err(TypecheckingErrorMessage {
                         error: TypecheckingError::NotSubtype(typ.clone(), expected),
                         loc: var.loc.clone()
