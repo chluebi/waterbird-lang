@@ -758,8 +758,7 @@ impl ast::LocStmt {
                 let expr = expr.typecheck(env)?;
                 match target.expr {
                     ast::Expr::Variable(ref var) => {
-                        let mut new_env = env.clone();
-                        new_env.insert_variable_type(var, &expr.typ, &expr.loc)?;
+                        env.insert_variable_type(var, &expr.typ, &expr.loc)?;
                         Ok(ast::LocStmt {stmt: ast::Stmt::Assignment { target, expr }, loc: self.loc, typ: ast::Type::Unit})
                     },
                     ast::Expr::Indexing { indexed, indexer } => {
