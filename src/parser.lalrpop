@@ -645,6 +645,13 @@ Expression: parse_ast::LocExpr = {
         },
         loc: start..end
     },
+    <start: @L> <f: Expression> "()" <end: @R> => parse_ast::LocExpr {
+        expr: parse_ast::Expr::FunctionCall {
+            function: Box::new(f),
+            arguments: vec![]
+        },
+        loc: start..end
+    },
     #[precedence(level="2")] #[assoc(side="left")]
     <start: @L> "-" <e:Term> <end: @R> => parse_ast::LocExpr {
         expr: parse_ast::Expr::UnOp {
