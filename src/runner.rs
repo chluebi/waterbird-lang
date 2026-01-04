@@ -174,7 +174,7 @@ pub fn typecheck(path: String) -> () {
 
 
     match program.typecheck() {
-        Ok(program) => println!("{}", program),
+        Ok(program) => println!("\n\n{}", program),
         Err(e) => {
             match e.loc.clone() {
                 range => {
