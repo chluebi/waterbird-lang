@@ -84,7 +84,10 @@ impl ast::Type {
                         &positional_arguments_a[i]
                     } else if let Some(var_a) = variadic_argument_a {
                         // handled by variadic a
-                        var_a
+                        match &**var_a {
+                            ast::Type::List(x) => &*x,
+                            _ => panic!()
+                        }
                     } else {
                         return false;
                     };
@@ -122,7 +125,11 @@ impl ast::Type {
                     let type_a = if let Some(kw_a) = keyword_arguments_a.iter().find(|k| k.name == kw_b.name) {
                         &kw_a.arg_type
                     } else if let Some(kv_a) = keyword_variadic_argument_a {
-                        kv_a // kwargs
+                        // handled by variadic a
+                        match &**kv_a {
+                            ast::Type::Dict{keys: _, values: x} => &*x,
+                            _ => panic!()
+                        }
                     } else {
                         return false;
                     };
@@ -253,7 +260,7 @@ impl ast::Type {
             return_type: Box::new(return_type.clone()) // this will just automatically succeed in the covariance check
         };
 
-        if caller_expected_type.subtypes(self) {
+        if self.subtypes(&caller_expected_type) {
             Some(return_type)
         } else {
             None
