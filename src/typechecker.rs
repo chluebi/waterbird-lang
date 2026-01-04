@@ -810,13 +810,12 @@ impl ast::LocStmt {
                                     })
                                 }
 
-                                let indexed_typ = indexed.typ.clone();
-                                
+                                let typ = *element_type.clone();
 
                                 Ok(ast::LocStmt {stmt: ast::Stmt::Assignment { 
                                         target: ast::LocExpr {
                                             expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
-                                            loc: target.loc, typ: indexed_typ
+                                            loc: target.loc, typ
                                         },
                                         expr: expr 
                                     },
@@ -854,12 +853,12 @@ impl ast::LocStmt {
                                     })
                                 }
 
-                                let indexed_typ = indexed.typ.clone();
+                                let typ = *values.clone();
 
                                 Ok(ast::LocStmt {stmt: ast::Stmt::Assignment { 
                                         target: ast::LocExpr {
                                             expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
-                                            loc: target.loc, typ: indexed_typ
+                                            loc: target.loc, typ
                                         },
                                         expr: expr 
                                     },
@@ -1338,12 +1337,11 @@ impl ast::LocExpr {
                             })
                         }
 
-                        let indexed_typ = indexed.typ.clone();
-                        
+                        let typ = *element_type.clone();
 
                         Ok(ast::LocExpr {
                             expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
-                            loc: self.loc, typ: indexed_typ
+                            loc: self.loc, typ
                         })
                     },
                     ast::Type::Dict{ref keys, ref values} => {
@@ -1363,11 +1361,11 @@ impl ast::LocExpr {
                             })
                         }
 
-                        let indexed_typ = indexed.typ.clone();
+                        let typ = *values.clone();
 
                         Ok(ast::LocExpr {
                             expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
-                            loc: self.loc, typ: indexed_typ
+                            loc: self.loc, typ
                         })
                     },
                     _ => return Err(TypecheckingErrorMessage {
