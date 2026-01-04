@@ -103,7 +103,7 @@ impl ast::Type {
             }) => {
                 
                 if generics_a != generics_b {
-                    todo!()
+                    return false;
                 }
 
                 if !return_type_a.subtypes(return_type_b) {
@@ -202,6 +202,18 @@ impl ast::Type {
     }
 
     pub fn join(&self, other: &Self) -> Self {
+        if self == other {
+            return self.clone();
+        }
+
+        if self.subtypes(other) {
+            return other.clone();
+        }
+
+        if other.subtypes(self) {
+            return self.clone();
+        }
+
         match (self, other) {
             (_, ast::Type::Unknown) | (ast::Type::Unknown, _) => ast::Type::Unknown,
             (ast::Type::Impossible, x) | (x, ast::Type::Impossible) => x.clone(),
@@ -224,24 +236,7 @@ impl ast::Type {
                 keyword_variadic_argument: keyword_variadic_argument_b,
                 return_type: return_type_b 
             }) => {
-
-                if generics_a != generics_b {
-                    todo!()
-                }
-
-                // okay so basically the problem here is the following
-                // we need to a find a function that both other functions subtype
-                if self.subtypes(other) {
-                    return other.clone();
-                }
-
-                if other.subtypes(self) {
-                    return self.clone();
-                }
-
-                // if they do not subtype each other, we need to account for contravariance of return arguments, which means meets etc.
-                // todo
-                return ast::Type::Unknown;
+                todo!(); ast::Type::Unknown
             },
             _ => ast::Type::Unknown
         }
@@ -275,28 +270,106 @@ impl ast::Type {
         caller_keyword_arguments: &Vec<ast::KeywordArgumentType>,
         caller_keyword_variadic_argument: &Option<ast::Type>
     ) -> Option<ast::Type> {
-        let return_type = match self {
-            ast::Type::Callable { return_type, .. } => *return_type.clone(),
+        
+        let (return_type, generics) = match self {
+            ast::Type::Callable { return_type, generics, .. } => (*return_type.clone(), generics.clone()),
             _ => return None
         };
 
-        if let ast::Type::Generic(_) = return_type {
-            todo!()
-        }
+        if !generics.is_empty() {
+            let mut mapping = HashMap::new();
 
-        let caller_expected_type = ast::Type::Callable { 
-            generics: vec![],
-            positional_arguments: caller_positional_arguments.clone(),
-            variadic_argument: caller_variadic_argument.clone().map(Box::new),
-            keyword_arguments: caller_keyword_arguments.clone(),
-            keyword_variadic_argument: caller_keyword_variadic_argument.clone().map(Box::new),
-            return_type: Box::new(return_type.clone()) // this will just automatically succeed in the covariance check
-        };
+            if let ast::Type::Callable { positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, .. } = self {
 
-        if self.subtypes(&caller_expected_type) {
-            Some(return_type)
+                // all arguments the caller has need to be accepted by the called function
+                for (i, caller_type) in caller_positional_arguments.iter().enumerate() {
+                    if i < positional_arguments.len() {
+                        positional_arguments[i].infer(caller_type, &mut mapping)
+                    } else if let Some(var) = variadic_argument {
+                        // handled by variadic
+                        match &**var {
+                            ast::Type::List(x) => x.infer(caller_type, &mut mapping),
+                            _ => panic!()
+                        }
+                    } else {
+                        return None;
+                    };
+                }
+
+                // caller called with variadic
+                if let Some(var_caller) = caller_variadic_argument {
+                    // function has variadic as well
+                    if let Some(var) = variadic_argument {
+                        var.infer(var_caller, &mut mapping)
+                    } else {
+                        // function cannot handle caller variadic
+                        return None; 
+                    }
+                }
+
+                // function needs to handle caller keyword arguments
+                for caller_kw in caller_keyword_arguments {
+                    if let Some(kw) = keyword_arguments.iter().find(|k| k.name == caller_kw.name) {
+                        kw.arg_type.infer(&caller_kw.arg_type, &mut mapping)
+                    } else if let Some(kw_var) = keyword_variadic_argument {
+                        match &**kw_var {
+                            ast::Type::Dict { keys: _, values } => values.infer(&caller_kw.arg_type, &mut mapping),
+                            _ => panic!()
+                        }
+                    } else {
+                        return None;
+                    };
+                }
+
+                if let Some(kv_caller) = caller_keyword_variadic_argument {
+                    if let Some(kv) = keyword_variadic_argument {
+                        kv.infer(kv_caller, &mut mapping);
+                    } else {
+                        return None;
+                    }
+                }
+                
+            } else {
+                panic!()
+            }
+
+            // Apply substitution
+            let instantiated_return = return_type.substitute(&mut mapping);
+            let instantiated_self = self.clone().substitute(&mut mapping);
+
+            // create concrete callable subtype without generics
+            if let ast::Type::Callable { generics: _, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type: _ } = instantiated_self {
+                let concrete_callable = ast::Type::Callable { 
+                    generics: vec![],
+                    positional_arguments, 
+                    variadic_argument, 
+                    keyword_arguments, 
+                    keyword_variadic_argument, 
+                    return_type: Box::new(instantiated_return.clone()) 
+                };
+
+                // Validate instanciated call
+                return concrete_callable.validate_call(caller_positional_arguments, caller_variadic_argument, caller_keyword_arguments, caller_keyword_variadic_argument);
+            } else {
+                panic!()
+            }
         } else {
-            None
+
+            let caller_expected_type = ast::Type::Callable { 
+                generics: vec![],
+                positional_arguments: caller_positional_arguments.clone(),
+                variadic_argument: caller_variadic_argument.clone().map(Box::new),
+                keyword_arguments: caller_keyword_arguments.clone(),
+                keyword_variadic_argument: caller_keyword_variadic_argument.clone().map(Box::new),
+                return_type: Box::new(return_type.clone()) // this will just automatically succeed in the covariance check
+            };
+
+            if self.subtypes(&caller_expected_type) {
+                Some(return_type)
+            } else {
+                None
+            }
+
         }
     }
 }
