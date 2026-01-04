@@ -56,7 +56,22 @@ impl ast::Type {
             ast::Type::Tuple(elements) => ast::Type::Tuple(elements.into_iter().map(|x| x.substitute(mapping)).collect()),
             ast::Type::List(t) => ast::Type::List(Box::new(t.substitute(mapping))),
             ast::Type::Dict { keys, values } => ast::Type::Dict { keys: Box::new(keys.substitute(mapping)), values: Box::new(values.substitute(mapping)) },
-            ast::Type::Callable { .. } => todo!(),
+            ast::Type::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => {
+                let mut new_mapping = mapping.clone();
+                // shadowing
+                for g in generics.iter() {
+                    new_mapping.remove(g);
+                }
+                
+                ast::Type::Callable { 
+                    generics,
+                    positional_arguments: positional_arguments.into_iter().map(|x| x.substitute(mapping)).collect(),
+                    variadic_argument: variadic_argument.map(|x| Box::new(x.substitute(mapping))),
+                    keyword_arguments: keyword_arguments.into_iter().map(|x| ast::KeywordArgumentType {name: x.name, arg_type: x.arg_type.substitute(mapping)}).collect(),
+                    keyword_variadic_argument: keyword_variadic_argument.map(|x| Box::new(x.substitute(mapping))),
+                    return_type: Box::new(return_type.substitute(mapping))
+                }
+            }
             _ => self
         }
     }
