@@ -1,7 +1,7 @@
-f(x: Str, *z: List<Int>) -> List<Int> {
-    z
+f<T>(*x: List<T>) -> List<T> {
+    x
 }
 
-main() -> List<Int> {
-    f("1", 2, 3)
+main() -> List<Str> {
+    f("1", "2")
 }
