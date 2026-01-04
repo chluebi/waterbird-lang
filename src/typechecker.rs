@@ -1200,10 +1200,30 @@ impl ast::LocExpr {
                 Ok(ast::LocExpr {expr: ast::Expr::Tuple(elements), loc: self.loc, typ: ast::Type::Tuple(element_types)})
             },
             ast::Expr::List(elements) => {
-                todo!("How do I deal with empty lists...")
+
+                let mut common_typ = ast::Type::Impossible;
+                let elements: Vec<_> = elements.into_iter().map(|x| Self::typecheck(x, env)).collect::<Result<_,_>>()?;
+                for el in elements.iter() {
+                    common_typ = common_typ.join(&el.typ);
+                }
+
+                Ok(ast::LocExpr {expr: ast::Expr::List(elements), loc: self.loc, typ: ast::Type::List(Box::new(common_typ))})
             },
             ast::Expr::Dictionary(elements) => {
-                todo!("How do I deal with empty lists...")
+                
+                let mut k_common_typ = ast::Type::Impossible;
+                let mut v_common_typ = ast::Type::Impossible;
+                let keys_values: (Vec<_>, Vec<_>) = elements.into_iter().map(|(k,v)| (k.typecheck(env), v.typecheck(env))).collect();
+                let keys: Vec<_> = keys_values.0.into_iter().collect::<Result<_,_>>()?;
+                let values: Vec<_> = keys_values.1.into_iter().collect::<Result<_,_>>()?;
+                let elements: Vec<(_,_)> = keys.into_iter().zip(values.into_iter()).collect();
+
+                for (k, v) in elements.iter() {
+                    k_common_typ = k_common_typ.join(&k.typ);
+                    v_common_typ = v_common_typ.join(&v.typ);
+                }
+
+                Ok(ast::LocExpr {expr: ast::Expr::Dictionary(elements), loc: self.loc, typ: ast::Type::Dict { keys: Box::new(k_common_typ), values: Box::new(v_common_typ) }})
             },
             ast::Expr::BinOp { op, left, right } => {
                 let signature = op.signature();
