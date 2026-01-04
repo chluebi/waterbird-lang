@@ -114,9 +114,13 @@ TypeIdent: parse_ast::HelperTypeIdent = {
     <i: Ident> => parse_ast::HelperTypeIdent {id: i, typ: None}
 }
 
-
 Generics: Vec<parse_ast::GenericLiteral> = {
-    <g:Generic> "," <gs:Generics> => {
+    "<" <g: GenericsList> ">" => g,
+    => vec![]
+};
+
+GenericsList: Vec<parse_ast::GenericLiteral> = {
+    <g:Generic> "," <gs:GenericsList> => {
         let mut gs = gs;
         gs.insert(0, g);
         gs
