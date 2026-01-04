@@ -1,8 +1,8 @@
-extern crate waterbird_lang;
+extern crate waterbird;
 
-// 2. Use the items from your library
-use waterbird_lang::runner::eval;
-use waterbird_lang::interpreter;  
+
+use waterbird::runner::eval;
+use waterbird::interpreter;  
 
 
 

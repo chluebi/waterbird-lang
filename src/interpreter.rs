@@ -1702,8 +1702,7 @@ fn call_function(
             if let Some(start) = profiler_start_time {
                 state.profiler.record(function_name, start.elapsed());
             }
-            todo!()
-            // return call_builtin(state, function_name, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)
+            return call_builtin(state, function_name, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)
         }
     };
 
@@ -1813,7 +1812,7 @@ fn deep_clone_value(state: &mut State, value: &Value) -> Result<Value, Interpret
     }
 }
 
-/* 
+
 fn call_builtin(
     state: &mut State,
     function_name: &str,
@@ -1828,11 +1827,14 @@ fn call_builtin(
     match function_name {
         "int" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![],
-                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -1889,11 +1891,14 @@ fn call_builtin(
         },
         "bool" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![],
-                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -1921,11 +1926,14 @@ fn call_builtin(
         },
         "str" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![],
-                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -1954,11 +1962,14 @@ fn call_builtin(
         },
         "tuple" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![],
-                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2016,11 +2027,14 @@ fn call_builtin(
         },
         "list" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![],
-                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2080,11 +2094,14 @@ fn call_builtin(
         },
         "print" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![],
-                variadic_argument: Some(ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0}),
+                variadic_argument: Some(ast::Argument {name: String::from("l"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2103,11 +2120,14 @@ fn call_builtin(
         },
         "len" | "String.len" | "Tuple.len" | "List.len" | "Dict.len" => {
             let contract = ast::FunctionPrototype {
-                positional_arguments: vec![ast::Argument {name: String::from("obj"), arg_type: None, loc: 0..0}],
+                generics: vec![],
+                positional_arguments: vec![ast::Argument {name: String::from("obj"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2127,11 +2147,14 @@ fn call_builtin(
 
         "clone" | "Int.clone" | "Bool.clone" | "String.clone" | "Tuple.clone" | "List.clone" | "Dict.clone" => {
             let contract = ast::FunctionPrototype {
-                positional_arguments: vec![ast::Argument {name: String::from("obj"), arg_type: None, loc: 0..0}],
+                generics: vec![],
+                positional_arguments: vec![ast::Argument {name: String::from("obj"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2155,14 +2178,17 @@ fn call_builtin(
 
         "List.push" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![
-                    ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0},
-                    ast::Argument {name: String::from("v"), arg_type: None, loc: 0..0}
+                    ast::Argument {name: String::from("l"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown},
+                    ast::Argument {name: String::from("v"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}
                 ],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2188,11 +2214,14 @@ fn call_builtin(
         },
         "List.pop" => {
             let contract = ast::FunctionPrototype {
-                positional_arguments: vec![ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0}],
-                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                generics: vec![],
+                positional_arguments: vec![ast::Argument {name: String::from("l"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}],
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2241,14 +2270,17 @@ fn call_builtin(
 
         "List.index" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![
-                    ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0},
-                    ast::Argument {name: String::from("elt"), arg_type: None, loc: 0..0}
+                    ast::Argument {name: String::from("l"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown},
+                    ast::Argument {name: String::from("elt"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}
                 ],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2278,14 +2310,17 @@ fn call_builtin(
 
         "List.remove" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![
-                    ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0},
-                    ast::Argument {name: String::from("elt"), arg_type: None, loc: 0..0}
+                    ast::Argument {name: String::from("l"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown},
+                    ast::Argument {name: String::from("elt"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}
                 ],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2322,11 +2357,14 @@ fn call_builtin(
 
         "Dict.keys" => {
             let contract = ast::FunctionPrototype {
-                positional_arguments: vec![ast::Argument {name: String::from("d"), arg_type: None, loc: 0..0}],
+                generics: vec![],
+                positional_arguments: vec![ast::Argument {name: String::from("d"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2352,11 +2390,14 @@ fn call_builtin(
         },
         "Dict.values" => {
             let contract = ast::FunctionPrototype {
-                positional_arguments: vec![ast::Argument {name: String::from("d"), arg_type: None, loc: 0..0}],
+                generics: vec![],
+                positional_arguments: vec![ast::Argument {name: String::from("d"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2382,11 +2423,14 @@ fn call_builtin(
         },
         "Dict.items" => {
             let contract = ast::FunctionPrototype {
-                positional_arguments: vec![ast::Argument {name: String::from("d"), arg_type: None, loc: 0..0}],
+                generics: vec![],
+                positional_arguments: vec![ast::Argument {name: String::from("d"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2415,11 +2459,14 @@ fn call_builtin(
 
         "read" => {
             let contract = ast::FunctionPrototype {
-                positional_arguments: vec![ast::Argument {name: String::from("f"), arg_type: None, loc: 0..0}],
+                generics: vec![],
+                positional_arguments: vec![ast::Argument {name: String::from("f"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2450,11 +2497,14 @@ fn call_builtin(
 
         "range" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![],
-                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2509,11 +2559,14 @@ fn call_builtin(
 
         "read_as_list" => {
             let contract = ast::FunctionPrototype {
-                positional_arguments: vec![ast::Argument {name: String::from("f"), arg_type: None, loc: 0..0}],
+                generics: vec![],
+                positional_arguments: vec![ast::Argument {name: String::from("f"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2545,13 +2598,16 @@ fn call_builtin(
 
         "split" | "String.split" | "List.split" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![
-                    ast::Argument {name: String::from("s"), arg_type: None, loc: 0..0},
+                    ast::Argument {name: String::from("s"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown},
                 ],
-                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2639,13 +2695,16 @@ fn call_builtin(
 
         "count" | "List.count" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![
-                    ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0},
+                    ast::Argument {name: String::from("l"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown},
                 ],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2682,13 +2741,16 @@ fn call_builtin(
 
         "any_true" | "List.any_true" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![
-                    ast::Argument {name: String::from("l"), arg_type: None, loc: 0..0},
+                    ast::Argument {name: String::from("l"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown},
                 ],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2724,11 +2786,14 @@ fn call_builtin(
 
         "assert" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![],
-                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type: None, loc: 0..0}),
+                variadic_argument: Some(ast::Argument {name: String::from("args"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown}),
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2759,13 +2824,16 @@ fn call_builtin(
 
         "dealloc" => {
             let contract = ast::FunctionPrototype {
+                generics: vec![],
                 positional_arguments: vec![
-                    ast::Argument {name: String::from("object"), arg_type: None, loc: 0..0},
+                    ast::Argument {name: String::from("object"), arg_type_literal: None, loc: 0..0, typ: ast::Type::Unknown},
                 ],
                 variadic_argument: None,
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
-                return_type: None
+                return_type_literal: None,
+                return_typ: ast::Type::Unknown,
+                typ: ast::Type::Unknown
             };
 
             let args_map = preprocess_args(state, &contract, loc, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, program)?;
@@ -2790,8 +2858,6 @@ fn call_builtin(
         _ => ()
     }
 
-
-
     return Err(InterpreterErrorMessage {
                 error: InterpreterError::FunctionNotFound(function_name.to_string()),
                 loc: Some(loc.clone())
@@ -2805,7 +2871,6 @@ fn read_file(file_path: &str) -> io::Result<String> {
     Ok(contents)
 }
 
-    */
 
 #[derive(Debug)]
 enum StatementReturn {
