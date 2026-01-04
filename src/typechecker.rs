@@ -28,6 +28,25 @@ pub struct TypecheckingErrorMessage {
 
 impl ast::Type {
 
+    pub fn infer(&self, concrete: &Self, mapping: &mut HashMap<String, ast::Type>) {
+        match (self, concrete) {
+            (ast::Type::Generic(s), _) => {
+                let other = match mapping.get(s) {
+                    Some(x) => x,
+                    _ => &ast::Type::Impossible
+                };
+                mapping.insert(s.clone(), concrete.join(other));
+            },
+            (ast::Type::Tuple(a), ast::Type::Tuple(b)) => a.iter().zip(b).for_each(|(a,b)| a.infer(b, mapping)),
+            (ast::Type::List(a), ast::Type::List(b)) => a.infer(b, mapping),
+            (ast::Type::Dict { keys: keys_a, values: values_a },
+                ast::Type::Dict { keys: keys_b , values: values_b }) => {keys_a.infer(keys_b, mapping); values_a.infer(values_b, mapping)},
+            (ast::Type::Callable { .. },
+                ast::Type::Callable { .. }) => todo!(),
+            _ => {}
+        }
+    }
+
     pub fn subtypes_constant_other(&self, other: &Self) -> bool {
         if self.subtypes(other) {
             return true;
