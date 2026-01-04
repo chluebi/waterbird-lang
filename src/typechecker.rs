@@ -47,6 +47,20 @@ impl ast::Type {
         }
     }
 
+    pub fn substitute(self, mapping: &mut HashMap<String, ast::Type>) -> Self {
+        match self {
+            ast::Type::Generic(ref s) => match mapping.get(s) {
+                Some(x) => x.clone(),
+                _ => self
+            },
+            ast::Type::Tuple(elements) => ast::Type::Tuple(elements.into_iter().map(|x| x.substitute(mapping)).collect()),
+            ast::Type::List(t) => ast::Type::List(Box::new(t.substitute(mapping))),
+            ast::Type::Dict { keys, values } => ast::Type::Dict { keys: Box::new(keys.substitute(mapping)), values: Box::new(values.substitute(mapping)) },
+            ast::Type::Callable { .. } => todo!(),
+            _ => self
+        }
+    }
+
     pub fn subtypes_constant_other(&self, other: &Self) -> bool {
         if self.subtypes(other) {
             return true;
