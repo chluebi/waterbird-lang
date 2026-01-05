@@ -28,6 +28,7 @@
             
             pkgs.rustc
             pkgs.cargo
+            pkgs.cargo-fuzz
             pkgs.rustfmt
             pkgs.rust-analyzer
             pkgs.linuxKernel.packages.linux_zen.perf
