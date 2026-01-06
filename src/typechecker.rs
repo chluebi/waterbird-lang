@@ -1540,7 +1540,57 @@ impl ast::LocExpr {
                 })
             },
 
-            ast::Expr::Lambda { .. } => todo!("capturing logic"),
+            ast::Expr::Lambda { arguments, expr } => {
+                let arguments: Vec<ast::LambdaArgument> = arguments
+                    .into_iter()
+                    .map(|arg| {
+                        let type_lit = arg.arg_type_literal
+                            .ok_or_else(|| TypecheckingErrorMessage {
+                                error: TypecheckingError::MissingTypeAnnotation,
+                                loc: arg.loc.clone(),
+                            })?;
+
+                        let typ = type_lit.typ.get_type();
+
+                        Ok(ast::LambdaArgument {
+                            name: arg.name,
+                            arg_type_literal: Some(type_lit),
+                            loc: arg.loc,
+                            typ: typ
+                        })
+                    })
+                    .collect::<Result<_, _>>()?;
+                
+                let mut new_env = FunctionEnv::new();
+                new_env.program_env = env.program_env.clone();
+
+                for v in ast::LocExpr::free_variables(&expr) {
+                    if !arguments.iter().any(|arg| arg.name == v) {
+                        match env.get_variable_type(&v) {
+                            Some(typ) => {let _ = new_env.insert_variable_type(&v, &typ, &self.loc)?;}
+                            _ => () // gets caught by expression typechecking
+                        }
+                        
+                    }
+                }
+
+                let expr = expr.typecheck(&mut new_env)?;
+
+                let typ = ast::Type::Callable { 
+                    generics: vec![],
+                    positional_arguments: arguments.iter().map(|arg| arg.typ.clone()).collect(),
+                    variadic_argument: None,
+                    keyword_arguments: vec![],
+                    keyword_variadic_argument: None,
+                    return_type: Box::new(expr.typ.clone())
+                };
+
+                Ok(ast::LocExpr {
+                    expr: ast::Expr::Lambda { arguments, expr: Box::new(expr) },
+                    loc: self.loc,
+                    typ: typ
+                })
+            },
 
             ast::Expr::Block { mut statements } => {
                 let mut env = env.clone();

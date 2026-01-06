@@ -374,6 +374,11 @@ PatternTerm: parse_ast::LocPattern = {
         type_literal: None,
         loc: start..end
     },
+    <start: @L> <i:Ident> ":" <t:Typ> <end: @R> => parse_ast::LocPattern {
+        pattern: parse_ast::Pattern::Variable(i),
+        type_literal: Some(t),
+        loc: start..end
+    },
     <start: @L> "[" <ps: CommaSeperatedPatterns> "]" <end: @R> => parse_ast::LocPattern {
         pattern: parse_ast::Pattern::List(ps),
         type_literal: None,

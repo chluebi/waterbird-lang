@@ -688,7 +688,7 @@ impl ast::LocExpr {
         }
     }
 
-    fn free_variables(self: &Self) -> HashSet<String> {
+    pub fn free_variables(self: &Self) -> HashSet<String> {
         match self.expr {
             ast::Expr::Variable(ref v) => {
                 vec![v.clone()].into_iter().collect()
