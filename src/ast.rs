@@ -298,7 +298,9 @@ impl fmt::Display for CallKeywordArgument {
 #[derive(Debug, Clone)]
 pub struct LambdaArgument {
     pub name: String,
-    pub loc: Loc
+    pub arg_type_literal: Option<LocTypeLiteral>,
+    pub loc: Loc,
+    pub typ: Type
 }
 
 impl fmt::Display for LambdaArgument {

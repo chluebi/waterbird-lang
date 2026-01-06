@@ -243,7 +243,7 @@ pub enum CallArgument {
 
 #[derive(Debug, Clone)]
 pub struct LambdaArgument {
-    pub expr: LocExpr,
+    pub expr: LocPattern,
     pub loc: Loc
 }
 
@@ -258,7 +258,7 @@ pub enum Expr {
     List(Vec<LocExpr>),
     ListComprehension {
         element_expr: Box<LocExpr>,
-        element_pattern: Box<LocExpr>,
+        element_pattern: Box<LocPattern>,
         iterable: Box<LocExpr>
     },
     Ternary {
@@ -590,19 +590,29 @@ impl Expr {
                 let mut statements = vec![];
 
                 for arg in arguments {
-                    match arg.expr.expr {
-                        Expr::Variable(v) => new_args.push(ast::LambdaArgument {name: v, loc: arg.expr.loc.clone()}),
-                        Expr::Tuple(_) | Expr::List(_) => {
+                    match arg.expr.pattern {
+                        Pattern::Variable(v) => new_args.push(ast::LambdaArgument {
+                            name: v,
+                            arg_type_literal: arg.expr.type_literal.map(LocTypeLiteral::preprocess).transpose()?,
+                            loc: arg.expr.loc.clone(),
+                            typ: ast::Type::Unknown}
+                        ),
+                        Pattern::Tuple(_) | Pattern::List(_) => {
                             let new_var = get_unique_var("unpack");
                             let new_var_expr = LocExpr {
                                 expr: Expr::Variable(new_var.clone()),
                                 loc: arg.expr.loc.clone()
                             };
                             let new_var_assignment = LocStmt {
-                                stmt: Stmt::Assignment { target: arg.expr.clone(), expr: new_var_expr },
+                                stmt: Stmt::Assignment { target: arg.expr.to_expr().clone(), expr: new_var_expr },
                                 loc: arg.expr.loc.clone()
                             };
-                            new_args.push(ast::LambdaArgument {name: new_var, loc: arg.expr.loc.clone()});
+                            new_args.push(ast::LambdaArgument {
+                                name: new_var,
+                                arg_type_literal: None,
+                                loc: arg.expr.loc.clone(),
+                                typ: ast::Type::Unknown
+                            });
                             statements.push(new_var_assignment);
                         },
                         _ => return Err(PreprocessingErrorMessage {
@@ -655,6 +665,36 @@ impl LocExpr {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    Variable(String),
+    Tuple(Vec<LocPattern>),
+    List(Vec<LocPattern>),
+}
+
+impl Pattern {
+    pub fn to_expr(&self) -> Expr {
+        match self {
+            Pattern::Variable(v) => Expr::Variable(v.clone()),
+            Pattern::Tuple(loc_patterns) => Expr::Tuple(loc_patterns.iter().map(LocPattern::to_expr).collect()),
+            Pattern::List(loc_patterns) => Expr::List(loc_patterns.iter().map(LocPattern::to_expr).collect()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LocPattern {
+    pub pattern: Pattern,
+    pub type_literal: Option<LocTypeLiteral>,
+    pub loc: Loc
+}
+
+impl LocPattern {
+    pub fn to_expr(&self) -> LocExpr {
+        LocExpr { expr: self.pattern.to_expr(), loc: self.loc.clone() }
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
@@ -678,7 +718,7 @@ pub enum Stmt {
         body: Box<LocStmt>
     },
     For {
-        pattern: LocExpr,
+        pattern: LocPattern,
         iterable: LocExpr,
         body: Box<LocStmt>
     },
@@ -838,7 +878,7 @@ impl Stmt {
                 let pattern_loc = pattern.loc.clone();
                 let set_element = LocStmt {
                     stmt: Stmt::Assignment { 
-                        target: pattern, 
+                        target: pattern.to_expr(), 
                         expr: LocExpr {
                             expr: Expr::Indexing {
                                 indexed: Box::new(iterable_var.clone()),

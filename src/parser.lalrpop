@@ -340,23 +340,24 @@ ControlFlow: Vec<parse_ast::LocStmt> = {
     }
 }
 
-MultiPattern: parse_ast::LocExpr = {
+MultiPattern: parse_ast::LocPattern = {
     <start: @L> <p:PatternTerm> "," <ps: CommaSeperatedPatterns> <end: @R> => {
         let mut patterns = ps;
         patterns.insert(0, p);
-        parse_ast::LocExpr {
-            expr: parse_ast::Expr::Tuple(patterns),
+        parse_ast::LocPattern {
+            pattern: parse_ast::Pattern::Tuple(patterns),
+            type_literal: None,
             loc: start..end
         }
     }
 }
 
-PatternExpression: parse_ast::LocExpr = {
+PatternExpression: parse_ast::LocPattern = {
     MultiPattern,
     <p:PatternTerm> => p,
 }
 
-CommaSeperatedPatterns: Vec<parse_ast::LocExpr> = {
+CommaSeperatedPatterns: Vec<parse_ast::LocPattern> = {
     <p:PatternTerm> "," <ps:CommaSeperatedPatterns> => {
         let mut ps = ps;
         ps.insert(0, p);
@@ -367,13 +368,15 @@ CommaSeperatedPatterns: Vec<parse_ast::LocExpr> = {
 }
 
 
-PatternTerm: parse_ast::LocExpr = {
-    <start: @L> <i:Ident> <end: @R> => parse_ast::LocExpr {
-        expr: parse_ast::Expr::Variable(i),
+PatternTerm: parse_ast::LocPattern = {
+    <start: @L> <i:Ident> <end: @R> => parse_ast::LocPattern {
+        pattern: parse_ast::Pattern::Variable(i),
+        type_literal: None,
         loc: start..end
     },
-    <start: @L> "[" <ps: CommaSeperatedPatterns> "]" <end: @R> => parse_ast::LocExpr {
-        expr: parse_ast::Expr::List(ps),
+    <start: @L> "[" <ps: CommaSeperatedPatterns> "]" <end: @R> => parse_ast::LocPattern {
+        pattern: parse_ast::Pattern::List(ps),
+        type_literal: None,
         loc: start..end
     },
     "(" <p:PatternExpression> ")" => p,

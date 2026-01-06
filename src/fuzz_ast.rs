@@ -256,13 +256,17 @@ impl CallKeywordArgument {
 #[derive(Serialize, Deserialize, autarkie::Grammar, Debug, Clone)]
 pub struct LambdaArgument {
     pub name: String,
+    pub arg_type_literal: Option<LocTypeLiteral>,
+    pub typ: Type
 }
 
 impl LambdaArgument {
     pub fn to_ast(&self) -> ast::LambdaArgument {
         ast::LambdaArgument {
             name: self.name.clone(),
+            arg_type_literal: self.arg_type_literal.as_ref().map(LocTypeLiteral::to_ast),
             loc: 0..0,
+            typ: self.typ.to_ast()
         }
     }
 }
