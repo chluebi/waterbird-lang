@@ -3,3 +3,4 @@
 .direnv
 **/input
 **/test_data
+/output_dir
