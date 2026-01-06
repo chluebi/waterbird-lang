@@ -41,8 +41,47 @@ impl ast::Type {
             (ast::Type::List(a), ast::Type::List(b)) => a.infer(b, mapping),
             (ast::Type::Dict { keys: keys_a, values: values_a },
                 ast::Type::Dict { keys: keys_b , values: values_b }) => {keys_a.infer(keys_b, mapping); values_a.infer(values_b, mapping)},
-            (ast::Type::Callable { .. },
-                ast::Type::Callable { .. }) => todo!(),
+            (ast::Type::Callable { 
+                generics: generics_a, 
+                positional_arguments: positional_arguments_a, 
+                variadic_argument: variadic_argument_a, 
+                keyword_arguments: keyword_arguments_a, 
+                keyword_variadic_argument: keyword_variadic_argument_a, 
+                return_type: return_type_a 
+            },
+            ast::Type::Callable { 
+                generics: _,
+                positional_arguments: positional_arguments_b, 
+                variadic_argument: variadic_argument_b, 
+                keyword_arguments: keyword_arguments_b, 
+                keyword_variadic_argument: keyword_variadic_argument_b, 
+                return_type: return_type_b 
+            }) => {
+                for (type_a, type_b) in positional_arguments_a.iter().zip(positional_arguments_b) {
+                    type_a.infer(type_b, mapping);
+                }
+
+                if let (Some(var_a), Some(var_b)) = (variadic_argument_a, variadic_argument_b) {
+                    var_a.infer(var_b, mapping);
+                }
+
+                for kw_a in keyword_arguments_a {
+                    if let Some(kw_b) = keyword_arguments_b.iter().find(|k| k.name == kw_a.name) {
+                        kw_a.arg_type.infer(&kw_b.arg_type, mapping);
+                    }
+                }
+
+                if let (Some(kw_var_a), Some(kw_var_b)) = (keyword_variadic_argument_a, keyword_variadic_argument_b) {
+                    kw_var_a.infer(kw_var_b, mapping);
+                }
+
+                return_type_a.infer(return_type_b, mapping);
+
+                // generics shadowing
+                for g in generics_a {
+                    mapping.remove(g);
+                }
+            },
             _ => {}
         }
     }
@@ -251,7 +290,7 @@ impl ast::Type {
                 keyword_variadic_argument: keyword_variadic_argument_b,
                 return_type: return_type_b 
             }) => {
-                todo!(); ast::Type::Unknown
+                ast::Type::Unknown
             },
             _ => ast::Type::Unknown
         }
@@ -265,7 +304,7 @@ impl ast::Type {
             | ast::Type::Int
             | ast::Type::Bool
             | ast::Type::Str => true,
-            ast::Type::Generic(_) => todo!(),
+            ast::Type::Generic(_) => true,
             ast::Type::Tuple(elements) => elements.iter().all(Self::is_known),
             ast::Type::List(t) => t.is_known(),
             ast::Type::Dict { keys, values } => keys.is_known() && values.is_known(),
@@ -406,7 +445,20 @@ impl ast::TypeLiteral {
             ast::TypeLiteral::Tuple(tys) => tys.iter().map(|t| Self::validate_generics(&t.typ, generics, loc)).collect(),
             ast::TypeLiteral::List(t) => Self::validate_generics(&t.typ, generics, loc),
             ast::TypeLiteral::Dict{keys, values} => {Self::validate_generics(&keys.typ, generics, loc)?; Self::validate_generics(&values.typ, generics, loc)},
-            ast::TypeLiteral::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => todo!(),
+            ast::TypeLiteral::Callable { generics: generics_callable, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => {
+                let generics: Vec<String> = generics.clone().into_iter().chain(generics_callable.clone().into_iter()).collect();
+                positional_arguments.iter().map(|arg| Self::validate_generics(&arg.typ, &generics, loc)).collect::<Result<(),_>>()?;
+                if let Some(arg) = &**variadic_argument {
+                    Self::validate_generics(&arg.typ, &generics, loc)?;
+                }
+                keyword_arguments.iter().map(|kwarg| Self::validate_generics(&kwarg.arg_type.typ, &generics, loc)).collect::<Result<(),_>>()?;
+                if let Some(arg) = &**keyword_variadic_argument {
+                    Self::validate_generics(&arg.typ, &generics, loc)?;
+                }
+                Self::validate_generics(&return_type.typ, &generics, loc)?;
+
+                Ok(())
+            },
             _ => Ok(())
         }
     }
@@ -421,14 +473,35 @@ impl ast::TypeLiteral {
             ast::TypeLiteral::Tuple(v) => ast::Type::Tuple(v.iter().map(|ltl| Self::get_type(&ltl.typ)).collect()),
             ast::TypeLiteral::List(t) => ast::Type::List(Box::new(Self::get_type(&t.typ))),
             ast::TypeLiteral::Dict { keys, values } => ast::Type::Dict { keys: Box::new(Self::get_type(&keys.typ)), values: Box::new(Self::get_type(&values.typ)) },
-            ast::TypeLiteral::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => todo!(),
+            ast::TypeLiteral::Callable { generics, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => {
+                ast::Type::Callable {
+                    generics: generics.clone(),
+                    positional_arguments: positional_arguments.iter().map(|arg| Self::get_type(&arg.typ)).collect(),
+                    variadic_argument: {
+                        if let Some(arg) = &**variadic_argument {
+                            Some(Box::new(Self::get_type(&arg.typ)))
+                        } else {
+                            None
+                        }
+                    },
+                    keyword_arguments: keyword_arguments.iter().map(|arg| ast::KeywordArgumentType {name: arg.name.clone(), arg_type: Self::get_type(&arg.arg_type.typ)}).collect(),
+                    keyword_variadic_argument: {
+                        if let Some(arg) = &**keyword_variadic_argument {
+                            Some(Box::new(Self::get_type(&arg.typ)))
+                        } else {
+                            None
+                        }
+                    },
+                    return_type: Box::new(Self::get_type(&return_type.typ))
+                }
+            },
         }
     }
 }
 
 
 #[derive(Clone)]
-struct ProgramEnv {
+pub struct ProgramEnv {
     functions: HashMap<String, ast::Type>
 }
 
@@ -779,7 +852,6 @@ impl ast::LocStmt {
                         }
 
                         match indexed.typ {
-                            ast::Type::Generic(s) => todo!("Deep sigh..."),
                             ast::Type::List(ref element_type) => {
                                 let indexer = indexer.typecheck(env)?;
 
@@ -1319,7 +1391,6 @@ impl ast::LocExpr {
                 }
 
                 match indexed.typ {
-                    ast::Type::Generic(s) => todo!("Deep sigh..."),
                     ast::Type::List(ref element_type) => {
                         let indexer = indexer.typecheck(env)?;
 
