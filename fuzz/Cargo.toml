@@ -8,7 +8,8 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+bincode = "1"
+libfuzzer-sys = { package = "autarkie_libfuzzer", version = "0.9.4" }
 
 [dependencies.waterbird]
 path = ".."

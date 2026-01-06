@@ -553,11 +553,11 @@ impl Function {
 }
 
 #[derive(Serialize, Deserialize, autarkie::Grammar, Debug, Clone)]
-pub struct Program {
+pub struct FuzzData {
     pub functions: Vec<Function>
 }
 
-impl Program {
+impl FuzzData {
     pub fn to_ast(&self) -> ast::Program {
         let mut functions_map = HashMap::new();
         for func in &self.functions {
@@ -569,4 +569,4 @@ impl Program {
     }
 }
 
-autarkie::fuzz_libfuzzer!(Program);
+autarkie::fuzz_libfuzzer!(FuzzData);

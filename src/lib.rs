@@ -8,3 +8,5 @@ pub mod runner;
 pub mod typechecker;
 
 pub mod fuzz_ast;
+
+pub use fuzz_ast::{*};

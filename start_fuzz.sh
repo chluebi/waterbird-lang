@@ -1,0 +1,1 @@
+CARGO_PROFILE_RELEASE_LTO=false AUTARKIE_GRAMMAR_SRC=$(pwd) cargo fuzz run autarkie_harness -- -o ./output_dir -c0

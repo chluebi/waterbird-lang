@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-autarkie = { version = "0.7.0", features = ["derive", "libfuzzer"] }
+autarkie = { version = "0.7.0", features = ["derive"] }
 lalrpop-util = {version = "0.22.2", features = ["lexer"]}
 rustc-hash = "2.1.1"
 serde = { version = "1.0.228", features = ["derive"] }

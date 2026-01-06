@@ -15,44 +15,49 @@
         
         llvmPackages = pkgs.llvmPackages_18;
 
-        rustToolchain = pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
-          extensions = [ "rust-src" "rust-analyzer" ];
+        rustToolchain = (pkgs.rust-bin.nightly."2025-11-20".default.override {
+          extensions = [ "rust-src" "rust-analyzer" "llvm-tools-preview" ];
         });
 
       in {
         devShells.default = pkgs.mkShell {
+          
+          nativeBuildInputs = [
+            rustToolchain
+            pkgs.pkg-config
+            pkgs.cmake
+            pkgs.cargo-fuzz
+          ];
+
           buildInputs = [
             llvmPackages.llvm
             llvmPackages.clang
-            llvmPackages.clang-unwrapped
             llvmPackages.libclang
             llvmPackages.lld
-            pkgs.cmake
-            pkgs.gdb
             pkgs.ncurses
             pkgs.libffi
             pkgs.libxml2
-            
-            rustToolchain
-            pkgs.cargo-fuzz
-            pkgs.rustfmt
-            pkgs.linuxKernel.packages.linux_zen.perf
+            pkgs.zlib
           ];
 
           shellHook = ''
-            export LLVM_DIR=${llvmPackages.llvm}/lib/cmake/llvm
-            export CLANG_DIR=${llvmPackages.clang}/lib/cmake/clang
-            export CXX=${llvmPackages.clang}/bin/clang++
-            export CC=${llvmPackages.clang}/bin/clang
-            export LLVM_INCLUDE_DIR="${llvmPackages.llvm.dev}/include"
+            # Critical for bindgen to find libclang.so on NixOS
+            export LIBCLANG_PATH="${llvmPackages.libclang.lib}/lib"
             
-            # Ensure cargo-fuzz knows we are on nightly
-            export RUSTUP_TOOLCHAIN=nightly 
+            # Help nested Cargo builds find libraries
+            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ llvmPackages.libclang.lib pkgs.zlib pkgs.libffi ]}:$LD_LIBRARY_PATH"
 
-            echo "--- LLVM C++ & Rust Dev Shell (Nightly) ---"
-            echo "Rust version: $(rustc --version)"
-            echo "LLVM_DIR: $LLVM_DIR"
-            echo "-------------------------------------------"
+            # Autarkie specific requirements
+            export LLVM_DIR="${llvmPackages.llvm}/lib/cmake/llvm"
+            export LLVM_CONFIG_PATH="${llvmPackages.llvm}/bin/llvm-config"
+            
+            # Set compilers
+            export CC="${llvmPackages.clang}/bin/clang"
+            export CXX="${llvmPackages.clang}/bin/clang++"
+
+            echo "--- NixOS Fuzzing Environment (Autarkie Ready) ---"
+            echo "LIBCLANG_PATH: $LIBCLANG_PATH"
+            echo "--------------------------------------------------"
           '';
         };
       });
