@@ -1,0 +1,22 @@
+[package]
+name = "waterbird-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.waterbird]
+path = ".."
+
+
+[[bin]]
+name = "autarkie_harness"
+path = "fuzz_targets/autarkie_harness.rs"
+test = false
+doc = false
+bench = false

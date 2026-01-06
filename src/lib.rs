@@ -6,3 +6,5 @@ pub mod ast;
 pub mod interpreter;
 pub mod runner;
 pub mod typechecker;
+
+pub mod fuzz_ast;
