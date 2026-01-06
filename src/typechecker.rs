@@ -1214,9 +1214,15 @@ impl ast::BinOp {
             },
 
             // Polymorphic
-            ast::BinOp::Eq => todo!("Polymorphic Eq"),
-            ast::BinOp::Neq => todo!("Polymorphic Neq"),
-            ast::BinOp::In => todo!("Polymorphic In"),
+            // todo: subtyping for In
+            ast::BinOp::Eq | ast::BinOp::Neq | ast::BinOp::In => ast::Type::Callable {
+                generics: vec!["X".to_string()],
+                positional_arguments: vec![ast::Type::Generic("X".to_string()), ast::Type::Generic("X".to_string())],
+                variadic_argument: None,
+                keyword_arguments: vec![],
+                keyword_variadic_argument: None,
+                return_type: Box::new(ast::Type::Bool),
+            }
         }
     }
 }
