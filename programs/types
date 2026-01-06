@@ -1,10 +1,8 @@
-f<T>(x: T, l: List<T>) -> (T, T) {
-    l[0] = x;
-    (l[0], l[1])
+map<A,B>(l: List<A>, f: fn(A) -> B) -> List<B> {
+    res = [f(l[0]), f(l[1]), f(l[2])];
+    res
 }
 
-main() -> (List<Int>, Int) {
-    l = [1, 2, 3];
-    a, b = f(42, l);
-    (l, b)
+main() -> List<(Int, Int)> {
+    map([1, 2, 3], |x: Int|{(x, x+1)})
 }

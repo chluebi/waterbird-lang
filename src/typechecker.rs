@@ -1563,6 +1563,11 @@ impl ast::LocExpr {
                 
                 let mut new_env = FunctionEnv::new();
                 new_env.program_env = env.program_env.clone();
+                new_env.new_frame();
+
+                for arg in &arguments {
+                    new_env.insert_variable_type(&arg.name, &arg.typ, &arg.loc)?;
+                }
 
                 for v in ast::LocExpr::free_variables(&expr) {
                     if !arguments.iter().any(|arg| arg.name == v) {
