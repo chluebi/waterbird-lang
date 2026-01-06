@@ -4,13 +4,20 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = inputs@{ self, nixpkgs, flake-utils, ... }:
+  outputs = inputs@{ self, nixpkgs, flake-utils, rust-overlay, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        overlays = [ (import rust-overlay) ];
+        pkgs = import nixpkgs { inherit system overlays; };
+        
         llvmPackages = pkgs.llvmPackages_18;
+
+        rustToolchain = pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
+          extensions = [ "rust-src" "rust-analyzer" ];
+        });
 
       in {
         devShells.default = pkgs.mkShell {
@@ -26,11 +33,9 @@
             pkgs.libffi
             pkgs.libxml2
             
-            pkgs.rustc
-            pkgs.cargo
+            rustToolchain
             pkgs.cargo-fuzz
             pkgs.rustfmt
-            pkgs.rust-analyzer
             pkgs.linuxKernel.packages.linux_zen.perf
           ];
 
@@ -40,10 +45,14 @@
             export CXX=${llvmPackages.clang}/bin/clang++
             export CC=${llvmPackages.clang}/bin/clang
             export LLVM_INCLUDE_DIR="${llvmPackages.llvm.dev}/include"
-            echo "--- LLVM C++ & Rust Dev Shell ---"
+            
+            # Ensure cargo-fuzz knows we are on nightly
+            export RUSTUP_TOOLCHAIN=nightly 
+
+            echo "--- LLVM C++ & Rust Dev Shell (Nightly) ---"
+            echo "Rust version: $(rustc --version)"
             echo "LLVM_DIR: $LLVM_DIR"
-            echo "CXX: $CXX"
-            echo "-------------------------------------"
+            echo "-------------------------------------------"
           '';
         };
       });
