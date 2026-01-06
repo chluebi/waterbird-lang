@@ -7,5 +7,5 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
 
-    let _ = program.to_ast().typecheck().unwrap();
+    let _ = program.to_ast().typecheck();
 });
