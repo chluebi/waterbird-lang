@@ -65,8 +65,8 @@ impl GenericLiteral {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeywordArgumentTypeLiteral {
-    name: String,
-    arg_type: Box<LocTypeLiteral>
+    pub name: String,
+    pub arg_type: Box<LocTypeLiteral>
 }
 
 impl KeywordArgumentTypeLiteral {
@@ -162,6 +162,14 @@ impl LocTypeLiteral {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum CallableTypeArg {
+    Positional(LocTypeLiteral),
+    Variadic(LocTypeLiteral),
+    Keyword(KeywordArgumentTypeLiteral),
+    KeywordVariadic(LocTypeLiteral)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BinOp {
     Eq,
@@ -239,6 +247,8 @@ pub enum CallArgument {
     KeywordArgument(String, LocExpr),
     KeywordVariadic(LocExpr)
 }
+
+
 
 
 #[derive(Debug, Clone)]

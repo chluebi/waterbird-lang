@@ -5,6 +5,7 @@ use unescaper;
 
 use crate::parse_ast;
 
+
 grammar;
 
 // The entry point of the grammar
@@ -879,11 +880,76 @@ Typ: parse_ast::LocTypeLiteral = {
         typ: parse_ast::TypeLiteral::Dict{keys: Box::new(k), values: Box::new(v)},
         loc: start..end
     },
+    CallableType,
 
     <start: @L> <i:Ident> <end: @R> => parse_ast::LocTypeLiteral {
         typ: parse_ast::TypeLiteral::Generic(i),
         loc: start..end
     }
+}
+
+CallableType: parse_ast::LocTypeLiteral = {
+    <start: @L> "fn" <g:CallableGenerics?> "(" <args:CommaSeperatedCallableArgs> ")" "->" <ret:Typ> <end: @R> => {
+        let mut positional_arguments = Vec::new();
+        let mut variadic_argument = None;
+        let mut keyword_arguments = Vec::new();
+        let mut keyword_variadic_argument = None;
+
+        for arg in args {
+            match arg {
+                parse_ast::CallableTypeArg::Positional(t) => positional_arguments.push(t),
+                parse_ast::CallableTypeArg::Variadic(t) => variadic_argument = Some(t),
+                parse_ast::CallableTypeArg::Keyword(k) => keyword_arguments.push(k),
+                parse_ast::CallableTypeArg::KeywordVariadic(t) => keyword_variadic_argument = Some(t),
+            }
+        }
+
+        parse_ast::LocTypeLiteral {
+            typ: parse_ast::TypeLiteral::Callable {
+                generics: g.unwrap_or_default(),
+                positional_arguments,
+                variadic_argument: Box::new(variadic_argument),
+                keyword_arguments,
+                keyword_variadic_argument: Box::new(keyword_variadic_argument),
+                return_type: Box::new(ret)
+            },
+            loc: start..end
+        }
+    }
+}
+
+CallableGenerics: Vec<String> = {
+    "<" <ids:CommaSeperatedIdents> ">" => ids
+}
+
+CommaSeperatedCallableArgs: Vec<parse_ast::CallableTypeArg> = {
+    <a:CallableArg> "," <as_:CommaSeperatedCallableArgs> => {
+        let mut v = as_;
+        v.insert(0, a);
+        v
+    },
+    <a:CallableArg> => vec![a],
+    => vec![]
+}
+
+CallableArg: parse_ast::CallableTypeArg = {
+    <n:Ident> "=" <t:Typ> => parse_ast::CallableTypeArg::Keyword(parse_ast::KeywordArgumentTypeLiteral { 
+        name: n, 
+        arg_type: Box::new(t) 
+    }),
+    "**" <t:Typ> => parse_ast::CallableTypeArg::KeywordVariadic(t),
+    "*" <t:Typ> => parse_ast::CallableTypeArg::Variadic(t),
+    <t:Typ> => parse_ast::CallableTypeArg::Positional(t),
+}
+
+CommaSeperatedIdents: Vec<String> = {
+    <i:Ident> "," <is:CommaSeperatedIdents> => {
+        let mut v = is;
+        v.insert(0, i);
+        v
+    },
+    <i:Ident> => vec![i],
+    => vec![]
 }
 
 
@@ -977,6 +1043,7 @@ match {
     "List",
     "Dict",
     "->",
+    "fn",
     //
 
     "=",
