@@ -1266,7 +1266,10 @@ impl ast::LocExpr {
                     Err(TypecheckingErrorMessage {error: TypecheckingError::VariableNotFound(x.clone()), loc: self.loc})
                 }
             },
-            ast::Expr::DotAccess(_, _) => todo!(),
+            ast::Expr::DotAccess(expr, attribute) => {
+                // todo: look up in env
+                Ok(ast::LocExpr {expr: ast::Expr::DotAccess(Box::new(Self::typecheck(*expr, env)?), attribute), loc: self.loc, typ: ast::Type::Unknown})
+            },
             ast::Expr::Int(x) => Ok(ast::LocExpr {expr: ast::Expr::Int(x), loc: self.loc, typ: ast::Type::Int}),
             ast::Expr::Bool(b) => Ok(ast::LocExpr {expr: ast::Expr::Bool(b), loc: self.loc, typ: ast::Type::Bool}),
             ast::Expr::Str(s) => Ok(ast::LocExpr {expr: ast::Expr::Str(s), loc: self.loc, typ: ast::Type::Str}),
