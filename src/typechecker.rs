@@ -136,6 +136,8 @@ impl ast::Type {
             (ast::Type::Unknown, _) => false,
             (ast::Type::Impossible, _) => true,
             (_, ast::Type::Impossible) => false,
+            (ast::Type::Returning, _) => true,
+            (_, ast::Type::Returning) => false,
             (ast::Type::Tuple(a), ast::Type::Tuple(b)) => a.iter().zip(b).all(|(a, b)| a.subtypes(b)),
             (ast::Type::List(_), ast::Type::List(_)) => false, // evil variance
             (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: _, values: _ }) => false, // evil variance
@@ -271,6 +273,7 @@ impl ast::Type {
         match (self, other) {
             (_, ast::Type::Unknown) | (ast::Type::Unknown, _) => ast::Type::Unknown,
             (ast::Type::Impossible, x) | (x, ast::Type::Impossible) => x.clone(),
+            (ast::Type::Returning, x) | (x, ast::Type::Returning) => x.clone(),
             (ast::Type::Tuple(a), ast::Type::Tuple(b)) => ast::Type::Tuple(a.iter().zip(b).map(|(a, b)| a.join(b)).collect()),
             (ast::Type::List(_), ast::Type::List(_)) => ast::Type::List(Box::new(ast::Type::Unknown)), // evil variance
             (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: _, values: _ }) => ast::Type::Dict { keys: Box::new(ast::Type::Unknown), values: Box::new(ast::Type::Unknown) },
@@ -312,6 +315,7 @@ impl ast::Type {
         match (self, other) {
             (x, ast::Type::Unknown) | (ast::Type::Unknown, x) => x.clone(),
             (ast::Type::Impossible, _) | (_, ast::Type::Impossible) => ast::Type::Impossible,
+            (ast::Type::Returning, _) | (_, ast::Type::Returning) => ast::Type::Returning,
             (ast::Type::Tuple(a), ast::Type::Tuple(b)) => ast::Type::Tuple(a.iter().zip(b).map(|(a, b)| a.meet(b)).collect()),
             (ast::Type::List(_), ast::Type::List(_)) => ast::Type::List(Box::new(ast::Type::Impossible)), // evil variance
             (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: _, values: _ }) => ast::Type::Dict { keys: Box::new(ast::Type::Impossible), values: Box::new(ast::Type::Impossible) },
@@ -340,7 +344,8 @@ impl ast::Type {
     pub fn is_known(&self) -> bool {
         match self {
             ast::Type::Unknown => false,
-            ast::Type::Impossible 
+            ast::Type::Returning 
+            | ast::Type::Impossible
             | ast::Type::Unit
             | ast::Type::Int
             | ast::Type::Bool
@@ -356,6 +361,13 @@ impl ast::Type {
                 && keyword_variadic_argument.as_ref().map_or(true, |t| t.is_known())
                 && return_type.is_known()
             }
+        }
+    }
+
+    pub fn is_concrete(&self) -> bool {
+        match self {
+            ast::Type::Impossible => false,
+            x => x.is_known()
         }
     }
 
@@ -788,10 +800,10 @@ impl ast::Function {
 
         let body = self.body.typecheck(&mut env)?;
 
-        if !(body.typ == ast::Type::Impossible || body.typ == **return_typ) {
+        if !(body.typ == ast::Type::Returning || body.typ == **return_typ) {
             return Err(TypecheckingErrorMessage {
                 error: TypecheckingError::WrongReturnType(),
-                loc: contract.return_type_literal.unwrap().loc // contract typecheck ensures this unwrap is safe
+                loc: self.loc
             })
         }
 
@@ -879,16 +891,16 @@ impl ast::LocStmt {
                         let indexed  = indexed.typecheck(env)?;
                         
 
-                        if let ast::Type::Impossible = indexed.typ {
+                        if let ast::Type::Returning = indexed.typ {
                             return Ok(ast::LocStmt {stmt: ast::Stmt::Assignment { 
                                         target: ast::LocExpr {
                                             expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: indexer },
-                                            loc: target.loc, typ: ast::Type::Impossible
+                                            loc: target.loc, typ: ast::Type::Returning
                                         },
                                         expr: expr
                                     },
                                     loc: self.loc,
-                                    typ: ast::Type::Impossible
+                                    typ: ast::Type::Returning
                                 });
                         }
 
@@ -896,16 +908,16 @@ impl ast::LocStmt {
                             ast::Type::List(ref element_type) => {
                                 let indexer = indexer.typecheck(env)?;
 
-                                if let ast::Type::Impossible = indexer.typ {
+                                if let ast::Type::Returning = indexer.typ {
                                     return Ok(ast::LocStmt {stmt: ast::Stmt::Assignment { 
                                                 target: ast::LocExpr {
                                                     expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
-                                                    loc: target.loc, typ: ast::Type::Impossible
+                                                    loc: target.loc, typ: ast::Type::Returning
                                                 },
                                                 expr: expr 
                                             },
                                             loc: self.loc,
-                                            typ: ast::Type::Impossible
+                                            typ: ast::Type::Returning
                                         });
                                 }
 
@@ -939,16 +951,16 @@ impl ast::LocStmt {
                             ast::Type::Dict{ref keys, ref values} => {
                                 let indexer = indexer.typecheck(env)?;
 
-                                if let ast::Type::Impossible = indexer.typ {
+                                if let ast::Type::Returning = indexer.typ {
                                     return Ok(ast::LocStmt {stmt: ast::Stmt::Assignment { 
                                                 target: ast::LocExpr {
                                                     expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
-                                                    loc: target.loc, typ: ast::Type::Impossible
+                                                    loc: target.loc, typ: ast::Type::Returning
                                                 },
                                                 expr: expr 
                                             },
                                             loc: self.loc,
-                                            typ: ast::Type::Impossible
+                                            typ: ast::Type::Returning
                                         });
                                 }
 
@@ -1033,7 +1045,7 @@ impl ast::LocStmt {
                 Ok(ast::LocStmt {
                     stmt: ast::Stmt::FunctionCall { expr },
                     loc: self.loc,
-                    typ: ast::Type::Impossible
+                    typ: ast::Type::Returning
                 })
             },
             ast::Stmt::Return { expr } => {
@@ -1049,7 +1061,7 @@ impl ast::LocStmt {
                 Ok(ast::LocStmt {
                     stmt: ast::Stmt::Return { expr: expr },
                     loc: self.loc,
-                    typ: ast::Type::Impossible
+                    typ: ast::Type::Returning
                 })
             },
             ast::Stmt::IfElse { cond, if_body, else_body } => {
@@ -1106,7 +1118,7 @@ impl ast::LocStmt {
                         let stmt: ast::LocStmt = stmt;
                         let stmt = stmt.typecheck(&mut env)?;
                         
-                        if let ast::Type::Impossible = stmt.typ {
+                        if let ast::Type::Returning = stmt.typ {
                             let next_stmt = match iter.peek() {
                                 Some(n) => n,
                                 _ => &last
@@ -1154,7 +1166,7 @@ impl ast::LocStmt {
                         let stmt: ast::LocStmt = stmt;
                         let stmt = stmt.typecheck(&mut env)?;
                         
-                        if let ast::Type::Impossible = stmt.typ {
+                        if let ast::Type::Returning = stmt.typ {
                             let next_stmt = match iter.peek() {
                                 Some(n) => n,
                                 _ => &last
@@ -1200,12 +1212,12 @@ impl ast::LocStmt {
             ast::Stmt::Break => Ok(ast::LocStmt {
                 stmt: ast::Stmt::Break,
                 loc: self.loc,
-                typ: ast::Type::Impossible
+                typ: ast::Type::Returning
             }),
             ast::Stmt::Continue => Ok(ast::LocStmt {
                 stmt: ast::Stmt::Continue,
                 loc: self.loc,
-                typ: ast::Type::Impossible
+                typ: ast::Type::Returning
             }),
         }
     }
@@ -1433,10 +1445,10 @@ impl ast::LocExpr {
             ast::Expr::Indexing { indexed, indexer } => {
                 let indexed = indexed.typecheck(env)?;
 
-                if let ast::Type::Impossible = indexed.typ {
+                if let ast::Type::Returning = indexed.typ {
                     return Ok(ast::LocExpr {
                         expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: indexer },
-                        loc: self.loc, typ: ast::Type::Impossible
+                        loc: self.loc, typ: ast::Type::Returning
                     });
                 }
 
@@ -1444,10 +1456,10 @@ impl ast::LocExpr {
                     ast::Type::List(ref element_type) => {
                         let indexer = indexer.typecheck(env)?;
 
-                        if let ast::Type::Impossible = indexer.typ {
+                        if let ast::Type::Returning = indexer.typ {
                             return Ok(ast::LocExpr {
                                 expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
-                                loc: self.loc, typ: ast::Type::Impossible
+                                loc: self.loc, typ: ast::Type::Returning
                             });
                         }
 
@@ -1468,10 +1480,10 @@ impl ast::LocExpr {
                     ast::Type::Dict{ref keys, ref values} => {
                         let indexer = indexer.typecheck(env)?;
 
-                        if let ast::Type::Impossible = indexer.typ {
+                        if let ast::Type::Returning = indexer.typ {
                             return Ok(ast::LocExpr {
                                 expr: ast::Expr::Indexing { indexed: Box::new(indexed), indexer: Box::new(indexer) },
-                                loc: self.loc, typ: ast::Type::Impossible
+                                loc: self.loc, typ: ast::Type::Returning
                             });
                         }
 
@@ -1652,7 +1664,7 @@ impl ast::LocExpr {
                         let stmt: ast::LocStmt = stmt;
                         let stmt = stmt.typecheck(&mut env)?;
                         
-                        if let ast::Type::Impossible = stmt.typ {
+                        if let ast::Type::Returning = stmt.typ {
                             let next_stmt = match iter.peek() {
                                 Some(n) => n,
                                 _ => &last

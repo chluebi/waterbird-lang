@@ -19,7 +19,8 @@ impl fmt::Display for KeywordArgumentType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Unknown, // Top
-    Impossible, // Bottom
+    Impossible, // Bottom, if this is ever reached we will crash
+    Returning, // last-before-bottom, this still subtypes everything but Impossible
     Unit,
     Generic(String),
     Int,
@@ -45,7 +46,7 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Type::Unknown => write!(f, "unknown"),
-            Type::Impossible => write!(f, "impossible"),
+            Type::Returning => write!(f, "impossible"),
             Type::Unit => write!(f, "()"),
             Type::Generic(s) => write!(f, "{}", s),
             Type::Int => write!(f, "Int"),

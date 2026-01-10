@@ -47,7 +47,7 @@ impl Type {
     pub fn to_ast(&self) -> ast::Type {
         match self {
             Type::Unknown => ast::Type::Unknown,
-            Type::Impossible => ast::Type::Impossible,
+            Type::Impossible => ast::Type::Returning,
             Type::Unit => ast::Type::Unit,
             Type::Generic(s) => ast::Type::Generic(s.clone()),
             Type::Int => ast::Type::Int,
