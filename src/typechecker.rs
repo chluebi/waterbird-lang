@@ -296,6 +296,47 @@ impl ast::Type {
         }
     }
 
+    pub fn meet(&self, other: &Self) -> Self {
+        if self == other {
+            return self.clone();
+        }
+
+        if self.subtypes(other) {
+            return self.clone();
+        }
+
+        if other.subtypes(self) {
+            return other.clone();
+        }
+
+        match (self, other) {
+            (x, ast::Type::Unknown) | (ast::Type::Unknown, x) => x.clone(),
+            (ast::Type::Impossible, _) | (_, ast::Type::Impossible) => ast::Type::Impossible,
+            (ast::Type::Tuple(a), ast::Type::Tuple(b)) => ast::Type::Tuple(a.iter().zip(b).map(|(a, b)| a.meet(b)).collect()),
+            (ast::Type::List(_), ast::Type::List(_)) => ast::Type::List(Box::new(ast::Type::Impossible)), // evil variance
+            (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: _, values: _ }) => ast::Type::Dict { keys: Box::new(ast::Type::Impossible), values: Box::new(ast::Type::Impossible) },
+            (ast::Type::Callable { 
+                generics: _,
+                positional_arguments: _,
+                variadic_argument: _,
+                keyword_arguments: _,
+                keyword_variadic_argument: _,
+                return_type: _ 
+            }, 
+            ast::Type::Callable { 
+                generics: _,
+                positional_arguments: _,
+                variadic_argument: _,
+                keyword_arguments: _,
+                keyword_variadic_argument: _,
+                return_type: _ 
+            }) => {
+                ast::Type::Impossible
+            },
+            _ => ast::Type::Impossible
+        }
+    }
+
     pub fn is_known(&self) -> bool {
         match self {
             ast::Type::Unknown => false,
