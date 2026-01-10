@@ -171,7 +171,15 @@ pub fn typecheck(path: String) -> () {
     println!("{}", program);
 
 
-    match program.typecheck() {
+    match {
+        match program.typecheck() {
+            Ok(p) => match p.verify() {
+                Ok(()) => Ok(p),
+                Err(e) => Err(e),
+            },
+            Err(e) => Err(e)
+        }
+    } {
         Ok(program) => println!("\n\n{}", program),
         Err(e) => {
             match e.loc.clone() {
