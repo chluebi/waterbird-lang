@@ -173,10 +173,10 @@ pub fn typecheck(path: String) -> () {
 
     match {
         match program.typecheck() {
-            Ok(p) => match p.verify() {
+            Ok(p) => {println!("\n\n{}", p); match p.verify() {
                 Ok(()) => Ok(p),
                 Err(e) => Err(e),
-            },
+            }},
             Err(e) => Err(e)
         }
     } {
@@ -185,7 +185,7 @@ pub fn typecheck(path: String) -> () {
             match e.loc.clone() {
                 range => {
                     let original_code_string = get_error_snippet(&program_text, range.start, range.end);
-                    println!("Program Failed: {:?}\n{}", e.error, original_code_string)
+                    println!("\nProgram Failed: {:?}\n{}", e.error, original_code_string)
                 }
             }
         }

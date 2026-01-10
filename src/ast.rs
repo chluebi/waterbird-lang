@@ -12,7 +12,7 @@ pub struct KeywordArgumentType {
 
 impl fmt::Display for KeywordArgumentType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}={}", self.name, self.arg_type)
+        write!(f, "{}: {}", self.name, self.arg_type)
     }
 }
 
@@ -45,20 +45,20 @@ pub enum Type {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Type::Unknown => write!(f, "unknown"),
-            Type::Impossible => write!(f, "impossible"),
-            Type::Returning => write!(f, "returning"),
+            Type::Unknown => write!(f, "?"),
+            Type::Impossible => write!(f, "!"),
+            Type::Returning => write!(f, "_"),
             Type::Unit => write!(f, "()"),
             Type::Generic(s) => write!(f, "{}", s),
-            Type::Int => write!(f, "Int"),
-            Type::Bool => write!(f, "Bool"),
-            Type::Str => write!(f, "String"),
+            Type::Int => write!(f, "int"),
+            Type::Bool => write!(f, "bool"),
+            Type::Str => write!(f, "str"),
             Type::Tuple(type_vec) => {
                 let parts: Vec<String> = type_vec.iter().map(|t| format!("{}", t)).collect();
                 write!(f, "({})", parts.join(", "))
             },
             Type::List(t) => write!(f, "List<{}>", t),
-            Type::Dict{keys, values} => write!(f, "Dict<{},{}>", keys, values),
+            Type::Dict{keys, values} => write!(f, "Dict<{}, {}>", keys, values),
             Type::Callable{
                 generics, 
                 positional_arguments,
@@ -67,13 +67,15 @@ impl fmt::Display for Type {
                 keyword_variadic_argument,
                 return_type
             } => {
+                write!(f, "fn")?;
+                
                 // Generics, if any
                 if !generics.is_empty() {
                     let gens = generics.join(", ");
-                    write!(f, "<{}>(", gens)?;
-                } else {
-                    write!(f, "(")?;
+                    write!(f, "<{}>", gens)?;
                 }
+
+                write!(f, "(")?;
 
                 // Positional args
                 let mut parts = vec![];
@@ -127,7 +129,7 @@ pub struct KeywordArgumentTypeLiteral {
 
 impl fmt::Display for KeywordArgumentTypeLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}={}", self.name, self.arg_type)
+        write!(f, "{}: {}", self.name, self.arg_type)
     }
 }
 
@@ -167,7 +169,7 @@ impl fmt::Display for TypeLiteral {
                 write!(f, "({})", parts.join(", "))
             },
             TypeLiteral::List(t) => write!(f, "List<{}>", t),
-            TypeLiteral::Dict{ keys, values } => write!(f, "Dict<{},{}>", keys, values),
+            TypeLiteral::Dict{ keys, values } => write!(f, "Dict<{}, {}>", keys, values),
             TypeLiteral::Callable {
                 generics,
                 positional_arguments,
@@ -178,15 +180,17 @@ impl fmt::Display for TypeLiteral {
             } => {
                 write!(f, "fn")?;
                 if !generics.is_empty() {
-                    write!(f, "(gen: {}; ", generics.join(", "))?;
-                } else {
-                    write!(f, "(")?;
+                    write!(f, "<{}>", generics.join(", "))?;
                 }
+                
+                write!(f, "(")?;
+                
                 let mut parts = vec![];
                 for t in positional_arguments { parts.push(format!("{}", t)); }
                 if let Some(var) = variadic_argument.as_ref() { parts.push(format!("*{}", var)); }
                 for kw in keyword_arguments { parts.push(format!("{}", kw)); }
                 if let Some(kv) = keyword_variadic_argument.as_ref() { parts.push(format!("**{}", kv)); }
+                
                 write!(f, "{}", parts.join(", "))?;
                 write!(f, ") -> {}", return_type)
             }
@@ -307,7 +311,11 @@ pub struct LambdaArgument {
 
 impl fmt::Display for LambdaArgument {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)
+        write!(f, "{}", self.name)?;
+        if let Some(typ) = &self.arg_type_literal {
+            write!(f, ": {}", typ)?;
+        }
+        Ok(())
     }
 }
 
@@ -363,10 +371,9 @@ impl fmt::Display for Expr {
             Expr::DotAccess(expr, member) => write!(f, "{}.{}", expr, member),
             Expr::Int(i) => write!(f, "{}", i),
             Expr::Bool(b) => write!(f, "{}", b),
-            Expr::Str(s) => write!(f, "\"{}\"", s.replace("\"", "\\\"")), // Simple escaping
+            Expr::Str(s) => write!(f, "\"{}\"", s.replace("\"", "\\\"")),
             Expr::Tuple(exprs) => {
                 let parts: Vec<String> = exprs.iter().map(|e| format!("{}", e)).collect();
-                // Add trailing comma for single-element tuple
                 if exprs.len() == 1 {
                     write!(f, "({},)", parts[0])
                 } else {
@@ -400,7 +407,12 @@ impl fmt::Display for Expr {
                 write!(f, "{}[{}]", indexed, indexer)
             },
             Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => {
-                write!(f, "{}[{}:{}:{}]", indexed, indexer_start.clone().map(|x| x.to_string()).unwrap_or("".to_string()), indexer_border.clone().map(|x| x.to_string()).unwrap_or("".to_string()), indexer_step.clone().map(|x| x.to_string()).unwrap_or("".to_string()))
+                write!(f, "{}[{}:{}:{}]", 
+                    indexed, 
+                    indexer_start.clone().map(|x| x.to_string()).unwrap_or_default(), 
+                    indexer_border.clone().map(|x| x.to_string()).unwrap_or_default(), 
+                    indexer_step.clone().map(|x| x.to_string()).unwrap_or_default()
+                )
             },
             Expr::Lambda { arguments, expr } => {
                 let args: Vec<String> = arguments.iter().map(|a| format!("{}", a)).collect();
@@ -484,13 +496,18 @@ impl fmt::Display for Stmt {
             Stmt::IfElse { cond, if_body, else_body } => {
                 write!(f, "if {} {}", cond, if_body)?;
                 
-                if let Stmt::Block { statements } = &else_body.stmt {
-                    if statements.is_empty() {
-                        return Ok(());
+                // Handle "else if" chain gracefully
+                if let Stmt::IfElse { .. } = else_body.stmt {
+                    write!(f, " else {}", else_body)
+                } else if let Stmt::Block { statements } = &else_body.stmt {
+                     if statements.is_empty() {
+                        Ok(())
+                    } else {
+                        write!(f, " else {}", else_body)
                     }
+                } else {
+                     write!(f, " else {}", else_body)
                 }
-
-                write!(f, " else {}", else_body)
             },
             Stmt::While { cond, body } => {
                 write!(f, "while {} {}", cond, body)
@@ -561,7 +578,11 @@ pub struct KeywordArgument {
 
 impl fmt::Display for KeywordArgument {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} = {}", self.name, self.expr)
+        write!(f, "{}", self.name)?;
+        if let Some(typ) = &self.arg_type_literal {
+            write!(f, ": {}", typ)?;
+        }
+        write!(f, " = {}", self.expr)
     }
 }
 
@@ -581,6 +602,14 @@ pub struct FunctionPrototype {
 
 impl fmt::Display for FunctionPrototype {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Add generics <T, U>
+        if !self.generics.is_empty() {
+             write!(f, "<")?;
+             let gens: Vec<String> = self.generics.iter().map(|g| g.to_string()).collect();
+             write!(f, "{}", gens.join(", "))?;
+             write!(f, ">")?;
+        }
+
         write!(f, "(")?;
         let mut parts = vec![];
         for arg in &self.positional_arguments { parts.push(format!("{}", arg)); }
