@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::fs::File;
-use std::cmp::Ordering;
 use std::io::{self, Read};
 use std::fmt;
 use slab::Slab;
@@ -624,40 +623,7 @@ fn deep_equals(left: &Value, right: &Value, heap: &Heap) -> bool {
 }
 
 
-fn compare_values(left: &Value, right: &Value, heap: &Heap, loc: &ast::Loc) -> Result<Ordering, InterpreterErrorMessage> {
-    match (left, right) {
-        (Value::Int(l), Value::Int(r)) => Ok(l.cmp(r)),
-        (Value::Bool(l), Value::Bool(r)) => Ok(l.cmp(r)),
-        (Value::String(l_ptr), Value::String(r_ptr)) => {
-            let l_str = heap.get_string(*l_ptr, Some(loc))?;
-            let r_str = heap.get_string(*r_ptr, Some(loc))?;
-            Ok(l_str.cmp(r_str))
-        },
-        (l, r) => {
-            if l.get_type_name() != r.get_type_name() {
-                Err(InterpreterErrorMessage {
-                    error: InterpreterError::TypeError {
-                        expected: l.get_type_name().to_string(),
-                        got: r.get_type_name()
-                    },
-                    loc: Some(loc.clone())
-                })
-            } else {
-                Err(InterpreterErrorMessage {
-                    error: InterpreterError::InvalidOperandTypesBin {
-                        op: ast::BinOp::Lt,
-                        left: l.get_type_name(),
-                        right: r.get_type_name()
-                    },
-                    loc: Some(loc.clone())
-                })
-            }
-        }
-    }
-}
-
-
-fn resolve_variable_from_state(state: &mut State, v: &str, program: &ast::Program) -> Result<Option<Value>, InterpreterErrorMessage> {
+fn resolve_variable_from_state(state: &mut State, v: &str) -> Result<Option<Value>, InterpreterErrorMessage> {
     Ok(state.stack.get_value(v)) 
 }
 
@@ -823,7 +789,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
     
     match expression.expr {
         ast::Expr::Variable(ref v) => {
-            if let Some(v) = resolve_variable_from_state(state, v, program)? {
+            if let Some(v) = resolve_variable_from_state(state, v)? {
                 return Ok(Ok(v));
             }
 
@@ -1379,7 +1345,7 @@ pub fn eval_expression(state: &mut State, expression: &ast::LocExpr, program: &a
         ast::Expr::Lambda { ref arguments, ref expr } => {
             let mut captured = FastMap::default();
             let argument_names: Vec<&String> = arguments.iter().map(|x| &x.name).collect();
-            for (k, v) in ast::LocExpr::free_variables(expr).iter().map(|v| (v, resolve_variable_from_state(state, v, program))) {
+            for (k, v) in ast::LocExpr::free_variables(expr).iter().map(|v| (v, resolve_variable_from_state(state, v))) {
                 if argument_names.contains(&k) {
                     continue;
                 }
@@ -1629,7 +1595,7 @@ fn preprocess_args(
         let ptr = state.heap.alloc(HeapObject::List(extra_args.to_vec()));
         
         new_values.insert(contract.variadic_argument.clone().unwrap().name, Value::List(ptr));
-    } else if let Some(var_argumemt) = &contract.variadic_argument {
+    } else if let Some(_) = &contract.variadic_argument {
         let ptr = state.heap.alloc(HeapObject::List(vec![]));
         new_values.insert(contract.variadic_argument.clone().unwrap().name, Value::List(ptr));
     }
@@ -2879,17 +2845,6 @@ enum StatementReturn {
     Continue,
     Break,
     None
-}
-
-impl StatementReturn {
-
-    pub fn unwrap(self: Self) -> Value {
-        match self {
-            Self::Return(v) => v,
-            Self::Eval(v) => v,
-            _ => panic!("unwrap failed")
-        }
-    }
 }
 
 fn run_statement(state: &mut State, stmt: &ast::LocStmt, program: &ast::Program) -> Result<StatementReturn, InterpreterErrorMessage> {

@@ -624,11 +624,7 @@ impl Expr {
                                 typ: ast::Type::Unknown
                             });
                             statements.push(new_var_assignment);
-                        },
-                        _ => return Err(PreprocessingErrorMessage {
-                            error: PreprocessingError::FunctionProcessingError("Lambda arguments need to be pattern to unpack into".to_string()),
-                            loc: Some(arg.expr.loc.clone())
-                        })
+                        } 
                     }
                 }
 

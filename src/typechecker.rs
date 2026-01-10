@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 
 use crate::ast;
 
@@ -138,7 +138,7 @@ impl ast::Type {
             (_, ast::Type::Impossible) => false,
             (ast::Type::Tuple(a), ast::Type::Tuple(b)) => a.iter().zip(b).all(|(a, b)| a.subtypes(b)),
             (ast::Type::List(_), ast::Type::List(_)) => false, // evil variance
-            (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: keys_b, values: values_b }) => false, // evil variance
+            (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: _, values: _ }) => false, // evil variance
             (ast::Type::Callable { 
                 generics: generics_a,
                 positional_arguments: positional_arguments_a,
@@ -275,20 +275,20 @@ impl ast::Type {
             (ast::Type::List(_), ast::Type::List(_)) => ast::Type::List(Box::new(ast::Type::Unknown)), // evil variance
             (ast::Type::Dict { keys: _, values: _ }, ast::Type::Dict { keys: _, values: _ }) => ast::Type::Dict { keys: Box::new(ast::Type::Unknown), values: Box::new(ast::Type::Unknown) },
             (ast::Type::Callable { 
-                generics: generics_a,
-                positional_arguments: positional_arguments_a,
-                variadic_argument: variadic_argument_a,
-                keyword_arguments: keyword_arguments_a,
-                keyword_variadic_argument: keyword_variadic_argument_a,
-                return_type: return_type_a 
+                generics: _,
+                positional_arguments: _,
+                variadic_argument: _,
+                keyword_arguments: _,
+                keyword_variadic_argument: _,
+                return_type: _ 
             }, 
             ast::Type::Callable { 
-                generics: generics_b,
-                positional_arguments: positional_arguments_b,
-                variadic_argument: variadic_argument_b,
-                keyword_arguments: keyword_arguments_b,
-                keyword_variadic_argument: keyword_variadic_argument_b,
-                return_type: return_type_b 
+                generics: _,
+                positional_arguments: _,
+                variadic_argument: _,
+                keyword_arguments: _,
+                keyword_variadic_argument: _,
+                return_type: _ 
             }) => {
                 ast::Type::Unknown
             },
@@ -773,7 +773,7 @@ pub struct FunctionEnv {
     variable_types: Vec<HashMap<String, ast::Type>> // stack because we can enter blocks
 }
 
-enum InsertVariableResult {
+pub enum InsertVariableResult {
     ExistsSame,
     Subtypes,
     DoesNotExist
@@ -958,7 +958,7 @@ impl ast::LocStmt {
                                 for (el, resulting_type) in elements.iter().zip(unpacked_elements_types) {
                                     match &el.expr {
                                         ast::Expr::Variable(x) => {
-                                            env.insert_variable_type(x, &resulting_type, &el.loc);
+                                            env.insert_variable_type(x, &resulting_type, &el.loc)?;
                                         }
                                         _ => return Err(TypecheckingErrorMessage {
                                             error: TypecheckingError::NeedsToBeVariable(el.expr.clone()),

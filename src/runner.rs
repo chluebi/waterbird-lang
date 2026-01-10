@@ -2,9 +2,7 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::str;
 
-use crate::ast::Program;
 use crate::parser;
-use crate::typechecker;
 use crate::parse_ast;
 use crate::interpreter;
 
@@ -180,8 +178,7 @@ pub fn typecheck(path: String) -> () {
                 range => {
                     let original_code_string = get_error_snippet(&program_text, range.start, range.end);
                     println!("Program Failed: {:?}\n{}", e.error, original_code_string)
-                },
-                _ => println!("Program Failed {:?}:\n[Unknown Location]", e.error)
+                }
             }
         }
     };
