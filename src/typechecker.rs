@@ -838,6 +838,8 @@ impl ast::Function {
 
     pub fn verify(&self) -> Result<(), TypecheckingErrorMessage> {
         self.contract.verify()?;
+        self.body.verify()?;
+
         self.body.typ.check_concrete(&self.loc)?;
         if !(self.body.typ.subtypes(&self.contract.return_typ)) {
             return Err(TypecheckingErrorMessage {
@@ -845,8 +847,6 @@ impl ast::Function {
                 loc: self.loc.clone()
             })
         }
-
-        self.body.verify()?;
 
         Ok(())
     }
@@ -926,8 +926,6 @@ impl FunctionEnv {
 impl ast::LocStmt {
 
     pub fn verify(&self) -> Result<(), TypecheckingErrorMessage> {
-        self.typ.check_concrete(&self.loc)?;
-        
         match &self.stmt {
             ast::Stmt::Assignment { target, expr } => {
                 target.verify()?;
@@ -958,7 +956,9 @@ impl ast::LocStmt {
                 expr.verify()
             },
             ast::Stmt::Break | ast::Stmt::Continue => Ok(()),
-        }
+        }?;
+
+        self.typ.check_concrete(&self.loc)
     }
 
     pub fn typecheck(self, env: &mut FunctionEnv) -> Result<Self, TypecheckingErrorMessage> {
@@ -1392,7 +1392,6 @@ impl ast::UnOp {
 impl ast::LocExpr {
 
     pub fn verify(&self) -> Result<(), TypecheckingErrorMessage>  {
-        self.typ.check_concrete(&self.loc)?;
 
         match &self.expr {
             ast::Expr::Variable(_) | 
@@ -1463,7 +1462,9 @@ impl ast::LocExpr {
                 }
                 Ok(())
             }
-        }
+        }?;
+
+        self.typ.check_concrete(&self.loc)
     }
 
     pub fn typecheck(self, env: &mut FunctionEnv) -> Result<Self, TypecheckingErrorMessage> {
