@@ -626,29 +626,29 @@ impl ast::Program {
 
 impl ast::FunctionPrototype {
 
-    pub fn verify(self) -> Result<(), TypecheckingErrorMessage> {
+    pub fn verify(&self) -> Result<(), TypecheckingErrorMessage> {
         let generics: Vec<String> = self.generics.iter().map(|x| x.name.clone()).collect();
 
         self.positional_arguments
-            .into_iter()
+            .iter()
             .try_for_each(|arg| {
                 arg.typ.check_concrete(&arg.loc)?;
                 arg.typ.verify_generics(&generics, &arg.loc)
             })?;
 
-        if let Some(variadic_argument) = self.variadic_argument {
+        if let Some(variadic_argument) = &self.variadic_argument {
             variadic_argument.typ.check_concrete(&variadic_argument.loc)?;
             variadic_argument.typ.verify_generics(&generics, &variadic_argument.loc)?;
         }
 
         self.keyword_arguments
-            .into_iter()
+            .iter()
             .try_for_each(|kwarg| {
                 kwarg.typ.check_concrete(&kwarg.loc)?;
                 kwarg.typ.verify_generics(&generics, &kwarg.loc)
             })?;
 
-        if let Some(keyword_variadic_argument) = self.keyword_variadic_argument {
+        if let Some(keyword_variadic_argument) = &self.keyword_variadic_argument {
             keyword_variadic_argument.typ.check_concrete(&keyword_variadic_argument.loc)?;
             keyword_variadic_argument.typ.verify_generics(&generics, &keyword_variadic_argument.loc)?;
         }
@@ -837,29 +837,26 @@ impl ast::FunctionPrototype {
 impl ast::Function {
 
     pub fn verify(&self) -> Result<(), TypecheckingErrorMessage> {
-        todo!()
+        self.contract.verify()?;
+        self.body.typ.check_concrete(&self.loc)?;
+        if !(self.body.typ.subtypes(&self.contract.return_typ)) {
+            return Err(TypecheckingErrorMessage {
+                error: TypecheckingError::WrongReturnType(),
+                loc: self.loc.clone()
+            })
+        }
+
+        self.body.verify()?;
+
+        Ok(())
     }
 
     pub fn typecheck(self, env: &ProgramEnv, initial_mapping: HashMap<String, ast::Type>) -> Result<Self, TypecheckingErrorMessage> {
         let contract = self.contract;
 
-        let return_typ = match contract.typ {
-            ast::Type::Callable {ref return_type, .. } => {
-                return_type
-            }
-            _ => panic!()
-        };
-
-        let mut env = FunctionEnv {program_env: env.clone(), return_type: *return_typ.clone(), variable_types: vec![initial_mapping]};
+        let mut env = FunctionEnv {program_env: env.clone(), return_type: contract.return_typ.clone(), variable_types: vec![initial_mapping]};
 
         let body = self.body.typecheck(&mut env)?;
-
-        if !(body.typ == ast::Type::Returning || body.typ == **return_typ) {
-            return Err(TypecheckingErrorMessage {
-                error: TypecheckingError::WrongReturnType(),
-                loc: self.loc
-            })
-        }
 
         return Ok(
             ast::Function {
@@ -927,8 +924,41 @@ impl FunctionEnv {
 }
 
 impl ast::LocStmt {
-    pub fn verify(self) -> Result<(), TypecheckingErrorMessage> {
-        todo!()
+
+    pub fn verify(&self) -> Result<(), TypecheckingErrorMessage> {
+        self.typ.check_concrete(&self.loc)?;
+        
+        match &self.stmt {
+            ast::Stmt::Assignment { target, expr } => {
+                target.verify()?;
+                expr.verify()
+            },
+            ast::Stmt::FunctionCall { expr } => {
+                expr.verify()
+            },
+            ast::Stmt::Return { expr } => {
+                expr.verify()
+            },
+            ast::Stmt::IfElse { cond, if_body, else_body } => {
+                cond.verify()?;
+                if_body.verify()?;
+                else_body.verify()
+            },
+            ast::Stmt::While { cond, body } => {
+                cond.verify()?;
+                body.verify()
+            },
+            ast::Stmt::Block { statements } | ast::Stmt::SoftBlock { statements } => {
+                for stmt in statements {
+                    stmt.verify()?;
+                }
+                Ok(())
+            },
+            ast::Stmt::Expression { expr } => {
+                expr.verify()
+            },
+            ast::Stmt::Break | ast::Stmt::Continue => Ok(()),
+        }
     }
 
     pub fn typecheck(self, env: &mut FunctionEnv) -> Result<Self, TypecheckingErrorMessage> {
@@ -1360,6 +1390,81 @@ impl ast::UnOp {
 
 
 impl ast::LocExpr {
+
+    pub fn verify(&self) -> Result<(), TypecheckingErrorMessage>  {
+        self.typ.check_concrete(&self.loc)?;
+
+        match &self.expr {
+            ast::Expr::Variable(_) | 
+            ast::Expr::Int(_) | 
+            ast::Expr::Bool(_) | 
+            ast::Expr::Str(_) => Ok(()),
+            
+            ast::Expr::DotAccess(expr, _) => {
+                expr.verify()
+            },
+            ast::Expr::Tuple(exprs) | ast::Expr::List(exprs) => {
+                for e in exprs {
+                    e.verify()?;
+                }
+                Ok(())
+            },
+            ast::Expr::Dictionary(pairs) => {
+                for (k, v) in pairs {
+                    k.verify()?;
+                    v.verify()?;
+                }
+                Ok(())
+            },
+            ast::Expr::BinOp { left, right, .. } => {
+                left.verify()?;
+                right.verify()
+            },
+            ast::Expr::UnOp { expr, .. } => {
+                expr.verify()
+            },
+            ast::Expr::FunctionCall { function, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument } => {
+                function.verify()?;
+                for arg in positional_arguments {
+                    arg.expr.verify()?;
+                }
+                if let Some(arg) = variadic_argument {
+                    arg.expr.verify()?;
+                }
+                for kw in keyword_arguments {
+                    kw.expr.verify()?;
+                }
+                if let Some(kw_arg) = keyword_variadic_argument {
+                    kw_arg.expr.verify()?;
+                }
+                Ok(())
+            },
+            ast::Expr::Indexing { indexed, indexer } => {
+                indexed.verify()?;
+                indexer.verify()
+            },
+            ast::Expr::Slice { indexed, indexer_start, indexer_border, indexer_step } => {
+                indexed.verify()?;
+                if let Some(start) = indexer_start { start.verify()?; }
+                if let Some(border) = indexer_border { border.verify()?; }
+                if let Some(step) = indexer_step { step.verify()?; }
+                Ok(())
+            },
+            ast::Expr::Lambda { arguments, expr } => {
+                // Verify that lambda argument types are concrete
+                for arg in arguments {
+                    arg.typ.check_concrete(&arg.loc)?;
+                }
+                expr.verify()
+            },
+            ast::Expr::Block { statements } => {
+                for stmt in statements {
+                    stmt.verify()?;
+                }
+                Ok(())
+            }
+        }
+    }
 
     pub fn typecheck(self, env: &mut FunctionEnv) -> Result<Self, TypecheckingErrorMessage> {
         
