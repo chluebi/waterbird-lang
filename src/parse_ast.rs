@@ -1149,6 +1149,7 @@ impl Function {
                 keyword_arguments,
                 keyword_variadic_argument,
                 return_type_literal: func.return_type.map(LocTypeLiteral::preprocess).transpose()?,
+                loc: func.loc.clone(),
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             },

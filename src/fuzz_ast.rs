@@ -532,6 +532,7 @@ impl FunctionPrototype {
             keyword_arguments: self.keyword_arguments.iter().map(|k| k.to_ast()).collect(),
             keyword_variadic_argument: self.keyword_variadic_argument.as_ref().map(|a| a.to_ast()),
             return_type_literal: self.return_type_literal.as_ref().map(|t| t.to_ast()),
+            loc: 0..0,
             return_typ: self.return_typ.to_ast(),
             typ: self.typ.to_ast(),
         }

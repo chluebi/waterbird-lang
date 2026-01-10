@@ -16,7 +16,16 @@ pub enum TypecheckingError {
     Unreachable(),
     VariableNotFound(String),
     ArgumentsDontMatchFunction(ast::Type),
-    WrongReturnType()
+    WrongReturnType(),
+
+    // Verification
+    VerificationErr(VerificationError)
+}
+
+#[derive(Debug)]
+pub enum VerificationError {
+    TypeCannotBeImpossible,
+    TypeCannotBeUnknown
 }
 
 
@@ -341,33 +350,46 @@ impl ast::Type {
         }
     }
 
-    pub fn is_known(&self) -> bool {
+    pub fn check_concrete(&self, loc: &ast::Loc) -> Result<(), TypecheckingErrorMessage> {
         match self {
-            ast::Type::Unknown => false,
+            ast::Type::Unknown => Err(TypecheckingErrorMessage {
+                error: TypecheckingError::VerificationErr(VerificationError::TypeCannotBeUnknown),
+                loc: loc.clone()
+            }),
+            ast::Type::Impossible => Err(TypecheckingErrorMessage {
+                error: TypecheckingError::VerificationErr(VerificationError::TypeCannotBeImpossible),
+                loc: loc.clone()
+            }),
             ast::Type::Returning 
-            | ast::Type::Impossible
             | ast::Type::Unit
             | ast::Type::Int
             | ast::Type::Bool
-            | ast::Type::Str => true,
-            ast::Type::Generic(_) => true,
-            ast::Type::Tuple(elements) => elements.iter().all(Self::is_known),
-            ast::Type::List(t) => t.is_known(),
-            ast::Type::Dict { keys, values } => keys.is_known() && values.is_known(),
-            ast::Type::Callable { generics: _, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => {
-                positional_arguments.iter().all(|t| t.is_known())
-                && variadic_argument.as_ref().map_or(true, |t| t.is_known())
-                && keyword_arguments.iter().all(|kw| kw.arg_type.is_known())
-                && keyword_variadic_argument.as_ref().map_or(true, |t| t.is_known())
-                && return_type.is_known()
+            | ast::Type::Str => Ok(()),
+            ast::Type::Generic(_) => Ok(()),
+            ast::Type::Tuple(elements) => elements.iter().map(|x| x.check_concrete(&loc)).collect(),
+            ast::Type::List(t) => t.check_concrete(&loc),
+            ast::Type::Dict { keys, values } => {
+                keys.check_concrete(&loc)?; 
+                values.check_concrete(&loc)
+            },
+            ast::Type::Callable { 
+                generics: _, 
+                positional_arguments, 
+                variadic_argument, 
+                keyword_arguments, 
+                keyword_variadic_argument, 
+                return_type 
+            } => {
+                positional_arguments.iter().try_for_each(|t| t.check_concrete(&loc))?;
+                if let Some(t) = variadic_argument {
+                    t.check_concrete(&loc)?;
+                }
+                keyword_arguments.iter().try_for_each(|kw| kw.arg_type.check_concrete(&loc))?;
+                if let Some(t) = keyword_variadic_argument {
+                    t.check_concrete(&loc)?;
+                }
+                return_type.check_concrete(&loc)
             }
-        }
-    }
-
-    pub fn is_concrete(&self) -> bool {
-        match self {
-            ast::Type::Impossible => false,
-            x => x.is_known()
         }
     }
 
@@ -479,13 +501,10 @@ impl ast::Type {
 
         }
     }
-}
 
-impl ast::TypeLiteral {
-
-    pub fn validate_generics(&self, generics: &Vec<String>, loc: &ast::Loc) -> Result<(), TypecheckingErrorMessage> {
+    pub fn verify_generics(&self, generics: &Vec<String>, loc: &ast::Loc) -> Result<(), TypecheckingErrorMessage> {
         match self {
-            ast::TypeLiteral::Generic(s) => {
+            ast::Type::Generic(s) => {
                 if !generics.contains(&s) {
                     Err(TypecheckingErrorMessage {
                         error: TypecheckingError::UnknownType(s.clone()),
@@ -495,26 +514,30 @@ impl ast::TypeLiteral {
                     Ok(())
                 }
             },
-            ast::TypeLiteral::Tuple(tys) => tys.iter().map(|t| Self::validate_generics(&t.typ, generics, loc)).collect(),
-            ast::TypeLiteral::List(t) => Self::validate_generics(&t.typ, generics, loc),
-            ast::TypeLiteral::Dict{keys, values} => {Self::validate_generics(&keys.typ, generics, loc)?; Self::validate_generics(&values.typ, generics, loc)},
-            ast::TypeLiteral::Callable { generics: generics_callable, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => {
+            ast::Type::Tuple(tys) => tys.iter().map(|t| Self::verify_generics(&t, generics, loc)).collect(),
+            ast::Type::List(t) => Self::verify_generics(&t, generics, loc),
+            ast::Type::Dict { keys, values } => {Self::verify_generics(&keys, generics, loc)?; Self::verify_generics(&values, generics, loc)},
+            ast::Type::Callable { generics: generics_callable, positional_arguments, variadic_argument, keyword_arguments, keyword_variadic_argument, return_type } => {
                 let generics: Vec<String> = generics.clone().into_iter().chain(generics_callable.clone().into_iter()).collect();
-                positional_arguments.iter().map(|arg| Self::validate_generics(&arg.typ, &generics, loc)).collect::<Result<(),_>>()?;
-                if let Some(arg) = &**variadic_argument {
-                    Self::validate_generics(&arg.typ, &generics, loc)?;
+                positional_arguments.iter().map(|arg| Self::verify_generics(&arg, &generics, loc)).collect::<Result<(),_>>()?;
+                if let Some(arg) = variadic_argument {
+                    Self::verify_generics(&arg, &generics, loc)?;
                 }
-                keyword_arguments.iter().map(|kwarg| Self::validate_generics(&kwarg.arg_type.typ, &generics, loc)).collect::<Result<(),_>>()?;
-                if let Some(arg) = &**keyword_variadic_argument {
-                    Self::validate_generics(&arg.typ, &generics, loc)?;
+                keyword_arguments.iter().map(|kwarg| Self::verify_generics(&kwarg.arg_type, &generics, loc)).collect::<Result<(),_>>()?;
+                if let Some(arg) = keyword_variadic_argument {
+                    Self::verify_generics(&arg, &generics, loc)?;
                 }
-                Self::validate_generics(&return_type.typ, &generics, loc)?;
+                Self::verify_generics(&return_type, &generics, loc)?;
 
                 Ok(())
             },
             _ => Ok(())
         }
     }
+
+}
+
+impl ast::TypeLiteral {
 
     pub fn get_type(&self) -> ast::Type {
         match self {
@@ -567,8 +590,9 @@ impl ProgramEnv {
 
 impl ast::Program {
 
-    pub fn verify(self) -> Result<(), TypecheckingErrorMessage> {
-        todo!()
+    pub fn verify(&self) -> Result<(), TypecheckingErrorMessage> {
+        self.functions.iter().try_for_each(|(_,f)| f.verify())?;
+        Ok(())
     }
 
     pub fn typecheck(self) -> Result<Self, TypecheckingErrorMessage> {
@@ -603,7 +627,36 @@ impl ast::Program {
 impl ast::FunctionPrototype {
 
     pub fn verify(self) -> Result<(), TypecheckingErrorMessage> {
-        todo!()
+        let generics: Vec<String> = self.generics.iter().map(|x| x.name.clone()).collect();
+
+        self.positional_arguments
+            .into_iter()
+            .try_for_each(|arg| {
+                arg.typ.check_concrete(&arg.loc)?;
+                arg.typ.verify_generics(&generics, &arg.loc)
+            })?;
+
+        if let Some(variadic_argument) = self.variadic_argument {
+            variadic_argument.typ.check_concrete(&variadic_argument.loc)?;
+            variadic_argument.typ.verify_generics(&generics, &variadic_argument.loc)?;
+        }
+
+        self.keyword_arguments
+            .into_iter()
+            .try_for_each(|kwarg| {
+                kwarg.typ.check_concrete(&kwarg.loc)?;
+                kwarg.typ.verify_generics(&generics, &kwarg.loc)
+            })?;
+
+        if let Some(keyword_variadic_argument) = self.keyword_variadic_argument {
+            keyword_variadic_argument.typ.check_concrete(&keyword_variadic_argument.loc)?;
+            keyword_variadic_argument.typ.verify_generics(&generics, &keyword_variadic_argument.loc)?;
+        }
+
+        self.return_typ.check_concrete(&self.loc)?;
+        self.return_typ.verify_generics(&generics, &self.loc)?;
+
+        Ok(())
     }
 
     pub fn typecheck(self, loc: &ast::Loc) -> Result<(Self, HashMap<String,ast::Type>), TypecheckingErrorMessage> {
@@ -618,7 +671,7 @@ impl ast::FunctionPrototype {
                         loc: arg.loc.clone(),
                     })?;
 
-                type_lit.typ.validate_generics(&generics, &arg.loc)?;
+                type_lit.typ.get_type().verify_generics(&generics, &arg.loc)?;
                 let typ = type_lit.typ.get_type();
 
                 Ok(ast::Argument {
@@ -638,7 +691,7 @@ impl ast::FunctionPrototype {
                         loc: var.loc.clone(),
                     })?;
 
-                type_lit.typ.validate_generics(&generics, &var.loc)?;
+                type_lit.typ.get_type().verify_generics(&generics, &var.loc)?;
                 let typ = type_lit.typ.get_type();
                 
                 let expected = ast::Type::List(Box::new(ast::Type::Unknown));
@@ -664,7 +717,7 @@ impl ast::FunctionPrototype {
             .map(|arg| {
                 match &arg.arg_type_literal {
                     Some(lit) => {
-                        lit.typ.validate_generics(&generics, &arg.loc)?;
+                        lit.typ.get_type().verify_generics(&generics, &arg.loc)?;
                         let ann = lit.typ.get_type();
                         let arg_expr = arg.expr.typecheck(&mut FunctionEnv::new())?;
                         if !arg_expr.typ.subtypes(&ann) {
@@ -712,7 +765,7 @@ impl ast::FunctionPrototype {
                         loc: var.loc.clone(),
                     })?;
 
-                type_lit.typ.validate_generics(&generics, &var.loc)?;
+                type_lit.typ.get_type().verify_generics(&generics, &var.loc)?;
                 let typ = type_lit.typ.get_type();
                 
                 let expected = ast::Type::Dict{keys: Box::new(ast::Type::Str), values: Box::new(ast::Type::Unknown)};
@@ -739,7 +792,7 @@ impl ast::FunctionPrototype {
                 loc: loc.clone(),
             })?;
 
-        return_typ_literal.typ.validate_generics(&generics, &return_typ_literal.loc)?;
+        return_typ_literal.typ.get_type().verify_generics(&generics, &return_typ_literal.loc)?;
         let return_typ = return_typ_literal.typ.get_type();
 
         let typ = ast::Type::Callable { 
@@ -773,6 +826,7 @@ impl ast::FunctionPrototype {
             keyword_arguments,
             keyword_variadic_argument,
             return_type_literal: Some(return_typ_literal),
+            loc: self.loc,
             return_typ,
             typ: typ.clone()
         }, variable_types))
@@ -782,7 +836,7 @@ impl ast::FunctionPrototype {
 
 impl ast::Function {
 
-    pub fn verify(self) -> Result<(), TypecheckingErrorMessage> {
+    pub fn verify(&self) -> Result<(), TypecheckingErrorMessage> {
         todo!()
     }
 

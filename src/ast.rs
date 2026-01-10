@@ -46,7 +46,8 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Type::Unknown => write!(f, "unknown"),
-            Type::Returning => write!(f, "impossible"),
+            Type::Impossible => write!(f, "impossible"),
+            Type::Returning => write!(f, "returning"),
             Type::Unit => write!(f, "()"),
             Type::Generic(s) => write!(f, "{}", s),
             Type::Int => write!(f, "Int"),
@@ -573,6 +574,7 @@ pub struct FunctionPrototype {
     pub keyword_arguments: Vec<KeywordArgument>,
     pub keyword_variadic_argument: Option<Argument>,
     pub return_type_literal: Option<LocTypeLiteral>,
+    pub loc: Loc,
     pub return_typ: Type,
     pub typ: Type
 }

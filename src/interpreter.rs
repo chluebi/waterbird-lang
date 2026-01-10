@@ -1799,6 +1799,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -1863,6 +1864,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -1898,6 +1900,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -1934,6 +1937,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -1999,6 +2003,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2066,6 +2071,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2092,6 +2098,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2119,6 +2126,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2153,6 +2161,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2186,6 +2195,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2245,6 +2255,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2285,6 +2296,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2329,6 +2341,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2362,6 +2375,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2395,6 +2409,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2431,6 +2446,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2469,6 +2485,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2531,6 +2548,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2572,6 +2590,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2669,6 +2688,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2715,6 +2735,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2758,6 +2779,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
@@ -2798,6 +2820,7 @@ fn call_builtin(
                 keyword_arguments: vec![],
                 keyword_variadic_argument: None,
                 return_type_literal: None,
+                loc: 0..0,
                 return_typ: ast::Type::Unknown,
                 typ: ast::Type::Unknown
             };
